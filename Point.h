@@ -7,13 +7,13 @@ public:
 	float longitude;
 	float latitude;
 
-	Point& operator= (const Point &point);
 
 	Point();
 	Point(float lat, float lng);
 	Point(std::string lat, std::string lng);
 	Point(const Point& point);
 
+	Point& operator= (const Point &point);
 	bool operator==(const Point &point);
 	bool operator< (const Point &point) const;
 	Point convertToBaidu() const;

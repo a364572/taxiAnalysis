@@ -6,5 +6,11 @@ class Station {
 public:
 	std::string name;
 	Point position;
+    int traffic;
+
+    Station() : traffic(0)
+    {
+    }
+
 };
 #endif

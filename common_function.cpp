@@ -8,8 +8,10 @@
 #include<algorithm>
 #include<time.h>
 #include<limits.h>
-#include "common_function.h"
 #include<stdio.h>
+#include "common_function.h"
+#include "PthreadPool.h"
+#include "TaxiTask.h"
 
 using namespace std;
 //读取一行 返回成功读取的字节数
@@ -69,10 +71,10 @@ map<string, Station> readStationPos(string name)
 		Station station;
 		station.name = res[0];
 		ss.clear();
-		ss << position[0];
+		ss << position[1];
 		ss >> station.position.longitude;
 		ss.clear();
-		ss << position[1];
+		ss << position[0];
 		ss >> station.position.latitude;
 		map[station.name] = station;
 	}
@@ -88,9 +90,8 @@ float rad(float value)
 //读取出租车数据 统计每个时间段内各个车站附近的车辆数目
 void readTaxiData(string filename, map<string, Station>& stationMap)
 {
-	float MAX_DISTANCE = 500.0;		//最大距离500m
-	int ZONE_INTERVAL = 30 * 60;	//时间区间30分钟
 
+    map<Point, string> positionMap;
 	//车站名 --> 时间区间 --> 车辆集合
 	map<string, map<int, set<string>>> zoneMap;
 	auto ite = stationMap.begin();
@@ -105,15 +106,22 @@ void readTaxiData(string filename, map<string, Station>& stationMap)
 		}
 		ite++;
 	}
-	
+
+    //创建线程池
+    PthreadPool pthreadPool;
+    TaxiTask::stationMap = &stationMap;
+    TaxiTask::zoneMap = &zoneMap;
+
+    string preCard;
 	Point prePoint;
+    int preZone = -1;
 	string line;
 	ifstream fi;
 	fi.open(filename.data(), ios::in);
 	while(getline(fi, line))
 	{
 		auto result = split(line, ',');
-		if(result.size() < 6)
+		if(result.size() < 4)
 		{
 			continue;
 		}
@@ -129,34 +137,20 @@ void readTaxiData(string filename, map<string, Station>& stationMap)
 	//	int flag = result[0][6] - '0';
 		Point point(result[3], result[2]);
 		string cardID = result[0].substr(0, 5);
+		//得到当前记录对应的时间区间
+		int zoneIndex = (tm.tm_hour - 6) * 3600 + tm.tm_min * 60 + tm.tm_sec;
+		zoneIndex = zoneIndex / ZONE_INTERVAL;
 
-		if(prevPoint == point)
+		if(preCard == cardID && prePoint == point && preZone == zoneIndex)
 		{
 			continue;
 		}
+        preCard = cardID;
+        prePoint = point;
+        preZone = zoneIndex;
 
-		//得到当前记录对应的时间区间
-		int zoneIndex = tm.tm_hour - 6 * 3600 + tm.tm_min * 60 + tm.tm_sec;
-		zoneIndex = zoneIndex / ZONE_INTERVAL;
-
-
-		float minDistance = INT_MAX;
-		string nearest;
-		auto ite = stationMap.begin();
-		while(ite != stationMap.end())
-		{
-			auto distance = point.getDistance(ite->second.position);
-			if(distance < minDistance)
-			{
-				nearest= ite->first;
-				minDistance = distance;
-			}
-			ite++;
-		}
-		if(minDistance <= MAX_DISTANCE)
-		{
-			zoneMap[nearest][zoneIndex].insert(cardID);
-		}
+        AbstractTask* task = new TaxiTask(point, cardID, zoneIndex);
+        pthreadPool.submitTask(task);
 	}
 
 	auto zoneIte = zoneMap.begin();

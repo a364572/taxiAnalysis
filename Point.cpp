@@ -33,12 +33,12 @@ Point& Point::operator=(const Point &point)
 	return *this;
 }
 
-bool Point::operator<(const Point &point)
+bool Point::operator<(const Point &point) const
 {
 	int lat1 = latitude * 1000;
 	int lat2 = point.latitude * 1000;
-	int lng1 = longtitude * 1000;
-	int lng2 = longtitude * 1000;
+	int lng1 = longitude * 1000;
+	int lng2 = point.longitude * 1000;
 	if(lat1 <= lat2)
 	{
 		return true;
@@ -53,8 +53,8 @@ bool Point::operator==(const Point &point)
 {
 	int lat1 = latitude * 1000;
 	int lat2 = point.latitude * 1000;
-	int lng1 = longtitude * 1000;
-	int lng2 = longtitude * 1000;
+	int lng1 = longitude * 1000;
+	int lng2 = point.longitude * 1000;
 	if(lat1 == lat2 && lng1 == lng2)
 	{
 		return true;
@@ -90,6 +90,7 @@ Point Point::convertToGoogle() const
 	return point;
 }
 
+//得到两点之间的距离 米
 float Point::getDistance(const Point &point)
 {
 	float rlat1 = rad(this->latitude);

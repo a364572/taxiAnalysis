@@ -7,7 +7,7 @@
 #include<deque>
 #include "TaxiTask.h"
 
-#define MAX_PTHREAD_NUMBER 20
+#define MAX_PTHREAD_NUMBER 10
 
 class PthreadPool
 {
@@ -16,6 +16,7 @@ public:
     pthread_mutex_t mutex;          //互斥量获取任务 
     std::deque<AbstractTask *> taskDeque;        //任务队列
     pthread_t pthread_array[MAX_PTHREAD_NUMBER];
+    int flag;
 
     PthreadPool();
 
@@ -23,6 +24,8 @@ public:
     void waitForFinish();
 
     static void *run(void *);
+
+    virtual ~PthreadPool();
 };
 
 #endif

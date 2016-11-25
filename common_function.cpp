@@ -247,6 +247,116 @@ void readTaxiData(string filename)
     }
     close(fd);
     pthreadPool.waitForFinish();
+}
 
+void mergeResult()
+{
+    map<string, map<int, Record>> recordMap; 
+    ifstream fd;
+    fd.open("./res", ios::in);
+    if(!fd.is_open())
+    {
+        cout << "文件打开失败" << endl;
+        return;
+    }
+    string line;
+    while(getline(fd, line))
+    {
+        auto result = split(line, ' ');
+        auto key = result[0];
+        if(recordMap.find(key) == recordMap.end())
+        {
+            recordMap[key] = map<int, Record>();
+        }
+        auto ite = result.begin();
+        ite++;
+        while(ite != result.end())
+        {
+            auto res = split(*ite, '_');
+            stringstream ss;
+            int value;
+            int index;
+            int cnt;
+            double expect;
+            double expect2;
+            ss << res[0];
+            ss >> value;
+            if(value < 10)
+            {
+                index = 1;
+            }
+            else if(value < 14)
+            {
+                index = 2;
+            }
+            else if(value < 18)
+            {
+                index = 3;
+            }
+            else if(value < 22)
+            {
+                index = 4;
+            }
 
+            ss.clear();
+            ss.str("");
+            ss << res[1];
+            ss >> cnt;
+
+            ss.clear();
+            ss.str("");
+            ss << res[2];
+            ss >> expect;
+
+            ss.clear();
+            ss.str("");
+            ss << res[3];
+            ss >> expect2;
+            if(recordMap[key].find(index) == recordMap[key].end())
+            {
+                recordMap[key][index] = Record();
+            }
+            recordMap[key][index].expect = (recordMap[key][index].expect *
+                recordMap[key][index].cnt + expect * cnt) / 
+                (recordMap[key][index].cnt + cnt);
+            recordMap[key][index].expect2 = (recordMap[key][index].expect2 *
+                recordMap[key][index].cnt + expect2 * cnt) / 
+                (recordMap[key][index].cnt + cnt);
+            recordMap[key][index].cnt += cnt;
+            ite++;
+        }
+    }
+    fd.close();
+    auto ite = recordMap.begin();
+    while(ite != recordMap.end())
+    {
+        string out = ite->first;
+        auto iite = ite->second.begin();
+        while(iite != ite->second.end())
+        {
+            out += " " + to_string(iite->first);
+            out += "_" + to_string(iite->second.cnt);
+            out += "_" + to_string(iite->second.expect);
+            out += "_" + to_string(iite->second.expect2);
+            iite++;
+        }
+        cout << out << endl;
+        ite++;
+    }
+}
+
+void readFilterRoad(set<string> &filter)
+{
+    ifstream fd;
+    fd.open("../../taxi/道路信息.txt", ios::in);
+    string line;
+    getline(fd, line);
+    while(getline(fd, line))
+    {
+        auto res = split(line, ',');
+        if(res[6] == "motorway" || res[6] == "motorway_link")
+        {
+            filter.insert(res[0]);
+        }
+    }
 }

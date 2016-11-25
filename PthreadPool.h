@@ -7,7 +7,7 @@
 #include<deque>
 #include "TaxiTask.h"
 
-#define MAX_PTHREAD_NUMBER 10
+#define MAX_PTHREAD_NUMBER 20
 
 class PthreadPool
 {

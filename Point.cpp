@@ -18,6 +18,7 @@ Point::Point(string lat, string lng)
 	ss << lat;
 	ss >> this->latitude;
 	ss.clear();
+    ss.str("");
 	ss << lng;
 	ss >> this->longitude;
 }
@@ -39,6 +40,12 @@ bool Point::operator<(const Point &point) const
 	int lat2 = point.latitude * 1000;
 	int lng1 = longitude * 1000;
 	int lng2 = point.longitude * 1000;
+
+    lat1 = lat1 - lat1 % GRANULARITY;
+    lat2 = lat2 - lat2 % GRANULARITY;
+    lng1 = lng1 - lat1 % GRANULARITY;
+    lng2 = lng2 - lng2 % GRANULARITY;
+
 	if(lat1 <= lat2)
 	{
 		return true;
@@ -55,6 +62,12 @@ bool Point::operator==(const Point &point)
 	int lat2 = point.latitude * 1000;
 	int lng1 = longitude * 1000;
 	int lng2 = point.longitude * 1000;
+
+    lat1 = lat1 - lat1 % GRANULARITY;
+    lat2 = lat2 - lat2 % GRANULARITY;
+    lng1 = lng1 - lat1 % GRANULARITY;
+    lng2 = lng2 - lng2 % GRANULARITY;
+
 	if(lat1 == lat2 && lng1 == lng2)
 	{
 		return true;

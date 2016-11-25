@@ -24,6 +24,10 @@ int main(int argc, char **args)
 //		cout<<ite->first<<" " << ite->second.position.latitude << " " << ite->second.position.longitude<<endl;
 		ite++;
 	}
+    set<string> filter;
+    readFilterRoad(filter);
+    MapTask::filterSet= &filter;
+    cout << filter.size() << endl;
 
     map<string, map<int, vector<int>>> zoneMap;
     MapTask::zoneMap = &zoneMap;
@@ -32,7 +36,7 @@ int main(int argc, char **args)
     while((dirent = readdir(dir)))
     {
         string filename = dirent->d_name;
-        if(filename.find("201504") == 0)
+        if(filename.find("20150401") == 0)
         {
             filename = "../../taxi/" + filename;
             cout << filename << endl;
@@ -60,5 +64,7 @@ int main(int argc, char **args)
 		zoneIte++;
         cout << out << endl;
 	}
+
+//    mergeResult();
 	return 0;
 }

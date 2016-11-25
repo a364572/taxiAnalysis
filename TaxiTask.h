@@ -8,7 +8,6 @@
 #include "Point.h"
 #include "Station.h"
 #include<pthread.h>
-#define MIN_TRIP_TIME 10
 class AbstractTask
 {
 public:
@@ -41,9 +40,12 @@ public:
 
     //key: 起点经纬度_终点经纬度 value:<key: 时间段 value: vector<int> 时间> 
     static std::map<std::string, std::map<int, std::vector<int>>> *zoneMap;
+    static std::set<std::string> *filterSet;
     static pthread_mutex_t mutex;
 
     static std::string get_round(std::string);
+    static Point getPoint(std::string, std::string);
+    static int getSecond(std::string);
     std::string record;
 };
 #endif

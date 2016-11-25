@@ -3,12 +3,17 @@
 #include<string>
 #include<vector>
 #include<map>
+#include<set>
 
 #include "Station.h"
 
 #define MAX_DISTANCE 300     //最大距离300m
 #define ZONE_INTERVAL 3600       //时间区间60分钟
-#define GRANULARITY 10
+#define GRANULARITY 10          //地图方块边长
+#define MIN_OD_TIME 600            //OD最小耗时 10分钟
+#define MIN_OD_DISTANCE 5000
+#define MAX_OD_DISTANCE 5000
+#define MIN_OD_SPEED 3.0 
 #define MIN_LATITUDE 30700
 #define MAX_LATITUDE 31400
 #define MIN_LONGITUDE 121000
@@ -25,7 +30,19 @@ std::map<std::string, Station> readStationPos(std::string name);
 float rad(float value);
 //void readTaxiData(std::string, std::map<std::string, Station>&);
 void readTaxiData(std::string); 
+void mergeResult();
+void readFilterRoad(std::set<std::string> &);
 
 float getExcept(std::vector<int> &);
 float getExcept2(std::vector<int> &);
+
+class Record
+{
+public:
+    int cnt;
+    double expect;
+    double expect2;
+    Record() : cnt(0), expect(0), expect2(0)
+    {}
+};
 #endif

@@ -29,7 +29,7 @@ string Parcel::generateID()
 }
 Parcel::Parcel()
 {
-    isDelivered = false;
+    isDelivered = isCarried = false;
     src = dst = "";
     start_time = time(NULL);
     id = generateID();
@@ -64,42 +64,26 @@ vector<string> split(string& line, string delim)
     res.push_back(line.substr(start));
     return res;
 }
-void handle_message_in(int fd)
+map<string, string> decodeRequese(string line)
 {
-    int message_type = 0;
-    if(fd < 0 || recv(fd, &message_type, 1, 0 ) != 1)
+    map<string, string> result;
+    vector<string> res = split(line, " ");
+    vector<string>::iterator ite = res.begin();
+    while(ite != res.end())
     {
-        log() << "读取消息出错" << endl;
-        return;
+        string msg = *ite;
+        vector<string> vec = split(msg, "_");
+        if(vec.size() == 2)
+        {
+            result[vec[0]] = vec[1];
+        }
+        ite++;
     }
-
-    switch(message_type)
-    {
-    case MESSAGE_REGISTER:
-        handle_register(fd);
-        break;
-    case MESSAGE_GET_ROUTE_PARCEL:
-        handle_get_route_parcel(fd);
-        break;
-    case MESSAGE_GET_DELIVER_PARCEL:
-        handle_get_deliver_parcel(fd);
-        break;
-    case MESSAGE_GET_USER_INFORMATION:
-        handle_get_user_information(fd);
-        break;
-    case MESSAGE_ACCEPT_PARCEL:
-        handle_accept_parcel(fd);
-        break;
-    case MESSAGE_DELIVER_PARCEL:
-        handle_deliver_parcel(fd);
-        break;
-    default:
-        log() << "不合法的消息类型" << endl;
-        break;
-    }
+    return result;
 }
 
-vector<string> recv_all_message(int fd)
+
+string recv_all_message(int fd)
 {
     char tmp[1024];
     int total_length = 0;
@@ -112,231 +96,324 @@ vector<string> recv_all_message(int fd)
 
     if(length < 0)
     {
-        return vector<string>();
+        return "";
     }
     tmp[total_length] = '\0';
-    string res = tmp;
-    return split(res, " ");
+    return tmp;
+}
+
+void handle_message_in(int fd)
+{
+    int message_type = 0;
+    if(fd < 0 || recv(fd, &message_type, 1, 0 ) != 1)
+    {
+        log() << "读取消息出错" << endl;
+        return;
+    }
+
+    log() << "消息类型 " << message_type << endl;
+
+    string msg = recv_all_message(fd);
+    map<string, string> keyValue = decodeRequese(msg);
+    switch(message_type)
+    {
+    case MESSAGE_REGISTER:
+        log() << "新用户注册" << endl;
+        handle_register(fd, keyValue);
+        break;
+    case MESSAGE_GET_ROUTE_PARCEL:
+        log() << "获取包裹数量" << endl;
+        handle_get_route_parcel(fd, keyValue);
+        break;
+    case MESSAGE_GET_DELIVER_PARCEL:
+        log() << "获取当前包裹" << endl;
+        handle_get_deliver_parcel(fd, keyValue);
+        break;
+    case MESSAGE_GET_USER_INFORMATION:
+        log() << "获取用户信息" << endl;
+        handle_get_user_information(fd, keyValue);
+        break;
+    case MESSAGE_ACCEPT_PARCEL:
+        log() << "用户接受任务" << endl;
+        handle_accept_parcel(fd, keyValue);
+        break;
+    case MESSAGE_DELIVER_PARCEL:
+        log() << "成功投递包裹" << endl;
+        handle_deliver_parcel(fd, keyValue);
+        break;
+    case MESSAGE_CHANGE_ROUTE:
+        log() << "修改出行路径" << endl;
+        handle_change_route(fd, keyValue);
+        break;
+    default:
+        log() << "不合法的消息类型" << message_type << endl;
+        break;
+    }
 }
 
 //用户注册
-void handle_register(int fd)
+void handle_register(int fd, map<string, string>& keyValue)
 {
-    vector<string> res = recv_all_message(fd);
-    User* user = new User();
-    for(vector<string>::size_type i = 0; i < res.size(); i++)
+    if(keyValue.find("name") == keyValue.end() ||
+            keyValue.find("email") == keyValue.end() ||
+            keyValue.find("telephone") == keyValue.end() ||
+            keyValue.find("gender") == keyValue.end() ||
+            keyValue.find("src") == keyValue.end() ||
+            keyValue.find("dst") == keyValue.end())
     {
-        vector<string> key_value = split(res[i], "_");
-        if(key_value.size() != 2)
-        {
-            continue;
-        }
-
-        if(key_value[0] == "name")
-        {
-            user->name = key_value[1];
-        }
-        if(key_value[0] == "email")
-        {
-            user->email = key_value[1];
-        }
-        if(key_value[0] == "telephone")
-        {
-            user->telephone = key_value[1];
-        }
-        if(key_value[0] == "gender")
-        {
-            user->gender = key_value[1];
-        }
-    }
-    if(user->email.size() > 0)
-    {
-        userMap[user->email] = user;
-        send(fd, "1", 1, 0);
-        log() << " 新注册用户" << "\r\n\t姓名:" << user->name <<
-           "\r\n\t性别:" << user->gender << "\r\n邮箱:" << user->email <<
-           "\r\n\t电话:" << user->telephone << endl;
+        log() << "不完整的注册信息" << endl;
+        send(fd, "0", 1, 0);
         return;
     }
-    send(fd, "0", 1, 0);
-    delete user;
+    User* user = new User();
+    user->name = keyValue["name"];
+    user->email = keyValue["email"];
+    user->telephone = keyValue["telephone"];
+    user->gender = keyValue["gender"];
+    user->src = keyValue["src"];
+    user->dst = keyValue["dst"];
+    if(userMap.find(user->email) == userMap.end())
+    {
+        userMap[user->email] = user;
+        string response = "email_" + user->email + " name_" + user->name;
+        send(fd, response.data(), response.size(), 0);
+
+        log() << " 用户注册成功" << "\r\n\t姓名:" << user->name <<
+            "\r\n\t性别:" << user->gender << "\r\n\t邮箱:" << user->email <<
+            "\r\n\t电话:" << user->telephone << "\r\n\t起点:" <<
+            user->src << "\r\n\t终点:" << user->dst << endl;
+    }
+    else
+    {
+        send(fd, "2", 1, 0);
+        log() << " 用户注册失败 邮箱已经存在 " << user->email << endl;
+        delete user;
+    }
 }
 
 //得到某条路径的包裹数量
-void handle_get_route_parcel(int fd)
+void handle_get_route_parcel(int fd, map<string, string>& keyValue)
 {
-    string response = "0";
-    string route;
-    vector<string> res = recv_all_message(fd);
-    for(vector<string>::size_type i = 0; i < res.size(); i++)
-    {
-        vector<string> key_value = split(res[i], "_");
-        if(key_value.size() != 2)
-        {
-            continue;
-        }
+    int cnt = 0;
+    char tmp[16];
 
-        if(key_value[0] == "route")
+    if(keyValue.find("src") == keyValue.end() || keyValue.find("dst") == keyValue.end())
+    {
+        send(fd, "cnt_0", 5, 0);
+        return; 
+    }
+    string route = keyValue["src"] + "|" + keyValue["dst"];
+    map<string, set<Parcel*> >::iterator ite = parcelInLine.find(route);
+    if(ite != parcelInLine.end())
+    {
+        set<Parcel *>::iterator parcelIte = ite->second.begin();
+        while(parcelIte != ite->second.end())
         {
-            map<string, set<Parcel*> >::iterator ite = parcelInLine.find(key_value[1]);
-            if(ite != parcelInLine.end())
+            if(!(*parcelIte)->isDelivered && !(*parcelIte)->isCarried)
             {
-                int cnt = 0;
-                set<Parcel *>::iterator parcelIte = ite->second.begin();
-                while(parcelIte != ite->second.end())
-                {
-                    if(!(*parcelIte)->isDelivered)
-                    {
-                        cnt++;
-                    }
-                }
-                char tmp[16];
-                memset(tmp, 0, sizeof(tmp));
-                sprintf(tmp, "%d", cnt);
-                response = tmp;
+                cnt++;
             }
+            parcelIte++;
         }
     }
-    log() << "路径 " << route << " 当前有 " << response << " 个包裹" << endl;
-    send(fd, response.data(), response.size(), 0);
+    memset(tmp, 0, sizeof(tmp));
+    sprintf(tmp, "cnt_%d", cnt);
+    log() << "路径 " << route << " 当前有 " << cnt << " 个包裹" << endl;
+    send(fd, tmp, strlen(tmp), 0);
 }
 
-//获取正在派送的包裹
-void handle_get_deliver_parcel(int fd)
+//获取用户正在派送的包裹
+void handle_get_deliver_parcel(int fd, map<string, string>& keyValue)
 {
-    string email;
-    string parcelID = "0";
-    vector<string> res = recv_all_message(fd);
-    for(vector<string>::size_type i = 0; i < res.size(); i++)
+    if(keyValue.find("email") == keyValue.end())
     {
-        vector<string> key_value = split(res[i], "_");
-        if(key_value.size() != 2)
-        {
-            continue;
-        }
-
-        if(key_value[0] == "email")
-        {
-            email = key_value[1];
-            map<string, User*>::iterator ite = userMap.find(key_value[1]);
-            if(ite != userMap.end())
-            {
-                parcelID = ite->second->current_parcel_id;
-            }
-        }
+        log() << "没有用户邮箱" << endl;
+        send(fd, "parcel_0", 8, 0);
+        return;
+    } 
+    string email = keyValue["email"];
+    string parcelID = "0";
+    string od = " src_ dst_";
+    map<string, User*>::iterator ite = userMap.find(email);
+    if(ite != userMap.end())
+    {
+        parcelID = ite->second->current_parcel_id;
+        od = " src_" + parcelMap[parcelID]->src + " dst_" + parcelMap[parcelID]->dst;
     }
     log() << " 用户 " << email << " 正在派送包裹" << parcelID << endl;
+    parcelID = "parcel_" + parcelID + od;
     send(fd, parcelID.data(), parcelID.size(), 0);
 }
 
 //获取用户的信息
-void handle_get_user_information(int fd)
+void handle_get_user_information(int fd, map<string, string>& keyValue)
 {
     string response = "0";
-    vector<string> res = recv_all_message(fd);
-    for(vector<string>::size_type i = 0; i < res.size(); i++)
-    {
-        vector<string> key_value = split(res[i], "_");
-        if(key_value.size() != 2)
-        {
-            continue;
-        }
 
-        if(key_value[0] == "email")
-        {
-            map<string, User*>::iterator ite = userMap.find(key_value[1]);
-            if(ite == userMap.end())
-            {
-                response = "0";
-            }
-            else
-            {
-                response = "name_" + ite->second->name;
-                response += " email_" + ite->second->email;
-                response += " telephone_" + ite->second->telephone;
-                response += " parcel_" + ite->second->current_parcel_id;
-            }
-        }
+    if(keyValue.find("email") == keyValue.end())
+    {
+        send(fd, "0", 1, 0);
+        return;
+    }
+    string email = keyValue["email"];
+    map<string, User*>::iterator ite = userMap.find(email);
+    if(ite == userMap.end())
+    {
+        log() << "没有该用户" << email << endl;
+        response = "0";
+    }
+    else
+    {
+        response = "name_" + ite->second->name;
+        response += " email_" + ite->second->email;
+        response += " telephone_" + ite->second->telephone;
+        response += " parcel_" + ite->second->current_parcel_id;
+        response += " src_" + ite->second->src;
+        response += " dst_" + ite->second->dst;
+
+        log() << "获取用户 " << email << " 信息成功 "
+            << response <<  endl;
     }
     send(fd, response.data(), response.size(), 0);
 }
 
 //用户选择接收包裹
-void handle_accept_parcel(int fd)
+void handle_accept_parcel(int fd, map<string, string>& keyValue)
 {
     string parcelID = "0";
-    string userEmail;
-    vector<string> res = recv_all_message(fd);
-    for(vector<string>::size_type i = 0; i < res.size(); i++)
-    {
-        vector<string> key_value = split(res[i], "_");
-        if(key_value.size() != 2)
-        {
-            continue;
-        }
 
-        if(key_value[0] == "route")
+    if(keyValue.find("email") == keyValue.end() ||
+            keyValue.find("src") == keyValue.end() ||
+            keyValue.find("dst") == keyValue.end())
+    {
+        log() << "请求信息不全" << endl;
+        send(fd, "0", 1, 0);
+        return;
+    }
+
+    string email = keyValue["email"];
+    if(userMap.find(email) == userMap.end())
+    {
+        log() << "没有该用户" << email << endl;
+        send(fd, "0", 1, 0);
+        return;
+    }
+    parcelID = userMap[email]->current_parcel_id;
+    if(parcelID == "0") 
+    {
+        string od = keyValue["src"] + "|" + keyValue["dst"];
+        map<string, set<Parcel*> >::iterator ite = parcelInLine.find(od);
+        if(ite != parcelInLine.end())
         {
-            map<string, set<Parcel*> >::iterator ite = parcelInLine.find(key_value[1]);
-            if(ite != parcelInLine.end())
+            set<Parcel *>::iterator parcelIte = ite->second.begin();
+            while(parcelIte != ite->second.end())
             {
-                set<Parcel *>::iterator parcelIte = ite->second.begin();
-                while(parcelIte != ite->second.end())
+                if(!(*parcelIte)->isDelivered && !(*parcelIte)->isCarried)
                 {
-                    if(!(*parcelIte)->isDelivered)
-                    {
-                        parcelID = (*parcelIte)->id;
-                    }
+                    parcelID = (*parcelIte)->id;
+                    break;
                 }
+                parcelIte++;
             }
         }
-
-        if(key_value[0] == "email")
-        {
-            userEmail = key_value[1];
-        }
     }
+
     if(parcelID.size() > 1)
     {
-        log() << "包裹 " << parcelID << " 被指派给用户" << userEmail << endl;
+        userMap[email]->src = parcelMap[parcelID]->src;
+        userMap[email]->dst = parcelMap[parcelID]->dst;
+        userMap[email]->current_parcel_id = parcelID;
+        parcelMap[parcelID]->isCarried = true;
+        parcelID = "parcel_" + parcelID + " src_" + parcelMap[parcelID]->src + " dst_" + parcelMap[parcelID]->dst;
+        log() << "包裹 " << parcelID << " 被指派给用户" << email << endl;
+    }
+    else
+    {
+        parcelID = "parcel_0";
     }
     send(fd, parcelID.data(), parcelID.size(), 0);
 }
 
 
 //用户送达包裹
-void handle_deliver_parcel(int fd)
+void handle_deliver_parcel(int fd, map<string, string>& keyValue)
 {
     string parcelID;
     string userEmail;
-    vector<string> res = recv_all_message(fd);
-    for(vector<string>::size_type i = 0; i < res.size(); i++)
+
+    if(keyValue.find("parcel") == keyValue.end() ||
+            keyValue.find("email") == keyValue.end())
     {
-        vector<string> key_value = split(res[i], "_");
-        if(key_value.size() != 2)
-        {
-            continue;
-        }
+        log() << "请求信息不全" << endl;
+        send(fd, "0", 1, 0);
+        return;
+    }
 
-        if(key_value[0] == "parcel")
-        {
-            parcelID = key_value[1];
-            parcelMap[parcelID]->isDelivered = true;
-            parcelMap[parcelID]->end_time = time(NULL);
-        }
+    parcelID = keyValue["parcel"];
+    userEmail = keyValue["email"];
 
-        if(key_value[0] == "email")
+    if(userMap.find(userEmail) == userMap.end())
+    {
+        log() << "没有该用户" << userEmail << endl;
+        send(fd, "0", 1, 0);
+        return;
+    }
+    if(parcelMap.find(parcelID) == parcelMap.end())
+    {
+        log() << "没有该包裹" << parcelID <<  endl;
+        send(fd, "0", 1, 0);
+        return;
+    }
+
+    userMap[userEmail]->current_parcel_id = "0";
+    parcelMap[parcelID]->isDelivered = true;
+    parcelMap[parcelID]->isCarried= false;
+    parcelMap[parcelID]->end_time = time(NULL);
+
+    log() << "包裹 " << parcelID << " 由用户 " << userEmail 
+        << " 送达目的地 " << endl;
+    string response = "parcel_" + parcelID;
+    send(fd, response.data(), response.size(), 0);
+}
+
+void handle_change_route(int fd, map<string, string>& keyValue)
+{
+    if(keyValue.find("email") == keyValue.end() ||
+            keyValue.find("src") == keyValue.end() ||
+            keyValue.find("dst") == keyValue.end())
+    {
+        log() << "请求信息不全" << endl;
+        send(fd, "0", 1, 0);
+        return;
+    }
+    string email = keyValue["email"];
+    if(userMap.find(email) == userMap.end())
+    {
+        log() << "没有该用户" << email << endl;
+        send(fd, "0", 1, 0);
+        return;
+    }
+    userMap[email]->src = keyValue["src"];
+    userMap[email]->dst = keyValue["dst"];
+    string route = keyValue["src"] + "|" + keyValue["dst"];
+    map<string, set<Parcel*> >::iterator ite = parcelInLine.find(route);
+    int cnt = 0;
+    if(ite != parcelInLine.end())
+    {
+        set<Parcel *>::iterator parcelIte = ite->second.begin();
+        while(parcelIte != ite->second.end())
         {
-            userEmail = key_value[1];
+            if(!(*parcelIte)->isDelivered && !(*parcelIte)->isCarried)
+            {
+                cnt++;
+            }
+            parcelIte++;
         }
     }
-    if(parcelID.size() > 0)
-    {
-        log() << "包裹 " << parcelID << " 由用户 " << userEmail 
-            << " 送达目的地 " << endl;
-        send(fd, "1", 1, 0);
-    }
-    send(fd, "0", 1, 0);
+    char tmp[32];
+    memset(tmp, 0, sizeof(tmp));
+    sprintf(tmp, "cnt_%d src_%s dst_%s", cnt, keyValue["src"].data(), keyValue["dst"].data());
+    send(fd, tmp, strlen(tmp), 0);
 }
 
 void add_parcel(Parcel *parcel)
@@ -349,7 +426,7 @@ void add_parcel(Parcel *parcel)
         delete parcel;
         return;
     }
-    string od = parcel->src + "_" + parcel->dst;
+    string od = parcel->src + "|" + parcel->dst;
     if(parcelInLine.find(od) == parcelInLine.end())
     {
         parcelInLine[od] = set<Parcel *>();
@@ -375,5 +452,4 @@ void read_station(string file)
         stationSet.insert(res[0]);
     }
     in.close();
-    
 }

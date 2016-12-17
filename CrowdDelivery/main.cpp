@@ -41,6 +41,7 @@ int main()
     if(sock < 0)
     {
         log() << "创建socket失败" << endl;
+        return -1;
     }
     int value = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &value, sizeof(value)); 
@@ -54,11 +55,9 @@ int main()
     if(bind(sock, (struct sockaddr*)&addr, sizeof(struct sockaddr)) != 0)
     {
         log() << "绑定套接字失败,请稍后再试" << endl;
+        return -1;
     }
-    else
-    {
-        log() << "绑定成功" << endl;
-    }
+    log() << "服务器启动成功" << endl;
 
     listen(sock, 5);
     read_station("station.txt");

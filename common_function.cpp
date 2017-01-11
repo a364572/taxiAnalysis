@@ -14,6 +14,8 @@
 #include<sys/stat.h>
 #include<fcntl.h>
 #include<errno.h>
+#include<dirent.h>
+#include<stdlib.h>
 #include "common_function.h"
 #include "PthreadPool.h"
 #include "TaxiTask.h"
@@ -95,7 +97,13 @@ map<string, Station> readStationPos(string name)
 		ss.clear();
 		ss << position[0];
 		ss >> station.position.latitude;
+        int lat = station.position.latitude * 1000;
+        int lng = station.position.longitude * 1000;
+        lat = lat - lat % GRANULARITY;
+        lng = lng - lng % GRANULARITY;
+        station.positionString = to_string(lat) + "," + to_string(lng);
 		map[station.name] = station;
+
 	}
 	fi.close();
 	return map;
@@ -109,25 +117,59 @@ float rad(float value)
 float getExcept(vector<int> &vec)
 {
     float sum = 0;
-    for(auto val : vec)
+    decltype(vec.size()) filter = 0;
+    if(vec.size() >= 100)
     {
-        sum += val;
+        filter = vec.size() * 0.4;
     }
-    return sum / vec.size();
+
+    for(auto i = filter / 2; i < vec.size() - filter / 2; i++)
+    {
+        sum += vec[i];
+    }
+    return sum / (vec.size() - filter);
 }
 
 float getExcept2(vector<int> &vec)
 {
     float sum = 0;
-    for(auto val : vec)
+    decltype(vec.size()) filter = 0;
+    if(vec.size() >= 100)
     {
-        sum += val * val;
+        filter = vec.size() * 0.4;
     }
-    return sum / vec.size();
+
+    for(auto i = filter / 2; i < vec.size() - filter / 2; i++)
+    {
+        sum += vec[i] * vec[i];
+    }
+    return sum / (vec.size() - filter);
+}
+
+int getCount(vector<int> &vec)
+{
+    int filter = 0;
+    if(vec.size() >= 100)
+    {
+        filter = vec.size() * 0.4;
+    }
+    return vec.size() - filter;
+}
+
+string get_min_mid_max(vector<int> &vec)
+{
+    int min = 0, max = vec.size() - 1;
+    if(vec.size() >= 100)
+    {
+        min = vec.size() * 0.2;
+        max = vec.size() - vec.size() * 0.2;
+    }
+    int mid = (min + max) / 2;
+    return to_string(vec[min]) + "_" + to_string(vec[mid]) + "_"
+        + to_string(vec[max]);
 }
 
 //读取出租车数据 统计每个时间段内各个车站附近的车辆数目
-//void readTaxiData(string filename, map<string, Station>& stationMap)
 void readTaxiData(string filename)
 {
 
@@ -232,7 +274,8 @@ void readTaxiData(string filename)
 //
 //                AbstractTask* task = new TaxiTask(point, cardID, zoneIndex);
 //                pthreadPool.submitTask(task);
-                  MapTask* task = new MapTask(line);
+                TimeTask* task = new TimeTask(line);
+                //MapTask* task = new MapTask(line);
                   pthreadPool.submitTask(task);
                   
             }
@@ -252,81 +295,58 @@ void readTaxiData(string filename)
 void mergeResult()
 {
     map<string, map<int, Record>> recordMap; 
-    ifstream fd;
-    fd.open("./res", ios::in);
-    if(!fd.is_open())
+
+    DIR* dir = opendir("car_number");
+    struct dirent* dirent;
+    while((dirent = readdir(dir)) != NULL)
     {
-        cout << "文件打开失败" << endl;
-        return;
-    }
-    string line;
-    while(getline(fd, line))
-    {
-        auto result = split(line, ' ');
-        auto key = result[0];
-        if(recordMap.find(key) == recordMap.end())
+        string filename = dirent->d_name;
+        if(filename.find_first_of(".") == 0)
         {
-            recordMap[key] = map<int, Record>();
+            continue;
         }
-        auto ite = result.begin();
-        ite++;
-        while(ite != result.end())
+        filename = "car_number/" + filename;
+        ifstream fd;
+        fd.open(filename.data(), ios::in);
+        if(!fd.is_open())
         {
-            auto res = split(*ite, '_');
-            stringstream ss;
-            int value;
-            int index;
-            int cnt;
-            double expect;
-            double expect2;
-            ss << res[0];
-            ss >> value;
-            if(value < 10)
+            cout << filename << "打开失败" << endl;
+            continue;
+        }
+        string line;
+        while(getline(fd, line))
+        {
+            auto result = split(line, ' ');
+            auto key = result[0];
+            if(recordMap.find(key) == recordMap.end())
             {
-                index = 1;
+                recordMap[key] = map<int, Record>();
             }
-            else if(value < 14)
-            {
-                index = 2;
-            }
-            else if(value < 18)
-            {
-                index = 3;
-            }
-            else if(value < 22)
-            {
-                index = 4;
-            }
-
-            ss.clear();
-            ss.str("");
-            ss << res[1];
-            ss >> cnt;
-
-            ss.clear();
-            ss.str("");
-            ss << res[2];
-            ss >> expect;
-
-            ss.clear();
-            ss.str("");
-            ss << res[3];
-            ss >> expect2;
-            if(recordMap[key].find(index) == recordMap[key].end())
-            {
-                recordMap[key][index] = Record();
-            }
-            recordMap[key][index].expect = (recordMap[key][index].expect *
-                recordMap[key][index].cnt + expect * cnt) / 
-                (recordMap[key][index].cnt + cnt);
-            recordMap[key][index].expect2 = (recordMap[key][index].expect2 *
-                recordMap[key][index].cnt + expect2 * cnt) / 
-                (recordMap[key][index].cnt + cnt);
-            recordMap[key][index].cnt += cnt;
+            auto ite = result.begin();
             ite++;
+            while(ite != result.end())
+            {
+                auto res = split(*ite, '_');
+                int index = atoi(res[0].data());
+                double avg = strtod(res[1].data(), NULL);
+                double dif = strtod(res[2].data(), NULL);
+                if(recordMap[key].find(index) == recordMap[key].end())
+                {
+                    recordMap[key][index] = Record();
+                }
+                if (avg < 0)
+                {
+                    avg = 61;
+                    dif = 3721;
+                }
+                recordMap[key][index].expect += avg;
+                recordMap[key][index].expect2 += dif;
+                recordMap[key][index].cnt++;
+                ite++;
+            }
         }
+        fd.close();
     }
-    fd.close();
     auto ite = recordMap.begin();
     while(ite != recordMap.end())
     {
@@ -335,9 +355,8 @@ void mergeResult()
         while(iite != ite->second.end())
         {
             out += " " + to_string(iite->first);
-            out += "_" + to_string(iite->second.cnt);
-            out += "_" + to_string(iite->second.expect);
-            out += "_" + to_string(iite->second.expect2);
+            out += "_" + to_string(iite->second.expect / iite->second.cnt);
+            out += "_" + to_string(iite->second.expect2 / iite->second.cnt);
             iite++;
         }
         cout << out << endl;
@@ -359,4 +378,160 @@ void readFilterRoad(set<string> &filter)
             filter.insert(res[0]);
         }
     }
+}
+void adjustCarNumber(map<string, map<int, set<string>>>& carMap, map<string, map<int, Info>>& result)
+{
+    auto ite = carMap.begin();
+    while(ite != carMap.end())
+    {
+        string zone = ite->first;
+        vector<string> vec = split(zone, ',');
+        if(vec.size() != 2)
+        {
+            continue;
+        }
+        int latitude = atoi(vec[0].data());
+        int longitude = atoi(vec[1].data());
+
+        result[zone] = map<int, Info>();
+        auto iite = ite->second.begin();
+        while(iite != ite->second.end())
+        {
+            int time = iite->first;
+            if(time < MIN_HOUR || time >= MAX_HOUR)
+            {
+                iite++;
+                continue;
+            }
+            float localNumber = iite->second.size();
+            float localWait = 61;
+            set<string> cars(iite->second);
+
+            for(int i = -GRANULARITY; i <= GRANULARITY; i += GRANULARITY)
+            {
+                int lat = latitude + GRANULARITY;
+                for(int j = -GRANULARITY; j <= GRANULARITY; j += GRANULARITY)
+                {
+                    int lng = longitude + GRANULARITY;
+                    string region = (to_string(lat) + "," + to_string(lng));
+                    if(region != zone && carMap.find(region) != carMap.end()
+                            && carMap[region].find(time) != carMap[region].end())
+                    {
+                        set<string> un;
+                        set_union(cars.begin(), cars.end(),
+                                carMap[region][time].begin(), carMap[region][time].end(),
+                                inserter(un, un.begin()));
+                        int dif = un.size() - cars.size(); 
+                        float drive_time = 2;
+                        float tmp = drive_time * dif + 60;
+                        localNumber = (60 * dif + localNumber * tmp) / tmp;
+                        localWait = 60 / localNumber; 
+                        cars.swap(un);
+                    }
+                }
+            }
+            Info info;
+            info.avg = localWait;
+            info.dif = info.avg * info.avg;
+            result[zone][time] = info;
+            iite++;
+        }
+        ite++;
+    }
+}
+bool checkPosition(string pos)
+{
+    auto vec = split(pos, ',');
+    int lat = atoi(vec[0].data());
+    int lng = atoi(vec[1].data());
+    if(lat < 31110 || lat > 31340 || lng < 121200 || lng > 121800)
+    {
+        return true;
+    }
+    return false;
+}
+
+//<时间-><OD->信息>>
+void buildRoute(string file)
+{
+    ifstream in;
+    in.open(file.data(), ios::in);
+    if(!in.is_open())
+    {
+        cout << "文件不存在" << endl;
+        return;
+    }
+
+    set<string> points;
+    map<int, map<string, float>> totalRoute;
+    map<int, map<string, float>> direct;
+    for(int i = MIN_HOUR; i < MAX_HOUR; i++)
+    {
+        totalRoute[i] = map<string, float>();
+        direct[i] = map<string, float>();
+    }
+
+    //读取历史数据
+    string line;
+    while(getline(in, line))
+    {
+        auto vec = split(line, ' ');
+        points.insert(vec[0]);
+        points.insert(vec[1]);
+        string od = vec[0] + " " + vec[1];
+        for(decltype(vec.size()) i = 2; i < vec.size(); i++)
+        {
+            auto tmp = split(vec[i], '_');
+            int hour = atoi(tmp[0].data());
+            float avg = strtof(tmp[2].data(), NULL);
+            float mid = strtof(tmp[5].data(), NULL);
+            if(avg < mid)
+            {
+                direct[hour][od] = avg;
+            }
+            else
+            {
+                direct[hour][od] = mid;
+            }
+        }
+    }
+    in.close();
+    cout << points.size() << endl;
+
+    ShortestPathTask::points = &points;
+    ShortestPathTask::totalRouteMap = &totalRoute;
+    ShortestPathTask::directMap = &direct;
+
+    PthreadPool pthreadPool;
+    for(int hour = MIN_HOUR; hour < MAX_HOUR; hour++)
+    {
+        //对每个小时进行遍历
+        for(string src : points)
+        {
+            ShortestPathTask* task = new ShortestPathTask(hour, src);
+            pthreadPool.submitTask(task);
+        }
+    }
+    pthreadPool.waitForFinish();
+
+    for(auto src : points)
+    {
+        for(auto dst : points)
+        {
+            string od = src + " " + dst;
+            string out = od;
+            for(int i = MIN_HOUR; i < MAX_HOUR; i++)
+            {
+                if(totalRoute[i].find(od) != totalRoute[i].end())
+                {
+                    out = out + " " + to_string(i) + "_" + to_string(totalRoute[i][od]);
+                }
+            }
+            if(od.size() < out.size())
+            {
+                cout << out << endl;
+            }
+        }
+    }
+
 }

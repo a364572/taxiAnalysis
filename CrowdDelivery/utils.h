@@ -7,7 +7,13 @@
 #include<vector>
 #include<sys/time.h>
 
+#define SERVER_IP "0.0.0.0"
+#define SERVER_PORT 9999
 #define PARCEL_ID_LENGTH 6
+#define EMULATION
+#define EMULATION_SPEED 60
+#define EMUL_START_HOUR 7
+#define EMUL_END_HOUR 18
 enum MESSAGE_TYPE
 {
     MESSAGE_REGISTER = '1',
@@ -60,10 +66,10 @@ extern std::map<std::string, User*> userMap;
 extern std::map<std::string, Parcel*> parcelMap;
 //extern std::map<std::string, std::set<Parcel*> > parcelInLine;
 extern std::map<std::string, std::set<Parcel*> > parcelInStation;
-extern std::map<std::string, Point*> stationSet;
+extern std::map<std::string, int> stationStrToInt;
+extern std::map<int, std::string> stationIntToStr;
 
 void handle_message_in(int fd);
-std::ostream& log();
 void handle_register(int, std::map<std::string, std::string>&);
 void handle_get_route_parcel(int, std::map<std::string, std::string>&);
 void handle_get_deliver_parcel(int, std::map<std::string, std::string>&);
@@ -72,16 +78,16 @@ void handle_accept_parcel(int, std::map<std::string, std::string>&);
 void handle_deliver_parcel(int, std::map<std::string, std::string>&);
 void handle_change_route(int, std::map<std::string, std::string>&);
 
-std::map<std::string, std::string> decodeRequese(std::string);
-std::vector<std::string> split(std::string &line, std::string delim);
-
 void get_parcel_count(std::string, std::string, std::string&, int&);
 void add_parcel(Parcel *, int);
-void read_station(std::string);
 void read_users(std::string);
 void read_parcels(std::string);
 void write_users(std::string);
 void write_parcels(std::string);
+int init_matlab();
+int is_worth_delivering(int sid, int did, int placeHour, int courDid, int courHour);
+void exit_matlab();
 template<class T>
 std::string toString(T t);
+
 #endif

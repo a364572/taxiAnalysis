@@ -13,18 +13,58 @@
 #include<string>
 #include<pthread.h>
 #include "utils.h"
+#include "commom.h"
 
-#define SERVER_IP "192.168.1.186"
-#define SERVER_PORT 9999
 #define MAX_EPOLL_EVENT_COUNT 10
 
 using namespace std;
 
 bool isRunning = true;
+map<string, int> stationStrToInt;
+map<int, string> stationIntToStr;
 void handle_signal(int)
 {
     log() << "准备退出程序" << endl;
     isRunning = false;
+    exit_matlab();
+}
+//随机产生包裹，总个数 开始小时 结束小时 左闭右开
+void generate_parcels(int num, int beginHour, int endHour)
+{
+    int cnt = 0;
+    int totalStation = stationIntToStr.size();
+    int total_minutes = (endHour - beginHour) * 60;
+    //获取当天日期
+    time_t now = get_time();
+    struct tm timeBegin;
+    struct tm* tm = localtime(&now);
+    memcpy(&timeBegin, tm, sizeof(timeBegin));
+    timeBegin.tm_sec = timeBegin.tm_min = tm->tm_hour = 0;
+
+    while(cnt < num)
+    {
+
+        int nextSrc = random() % totalStation + 1;
+        int nextDst = nextSrc;
+        while(nextDst == nextSrc)
+        {
+            nextDst = random() % totalStation + 1;
+        }
+        Parcel *parcel = new Parcel();
+        parcel->src = stationIntToStr[nextSrc];
+        parcel->dst = stationIntToStr[nextDst];
+        int nextMinute = random() % total_minutes;
+        timeBegin.tm_hour = beginHour + nextMinute / 60;
+        timeBegin.tm_min = nextMinute % 60;
+        now = mktime(&timeBegin);
+        //设置包裹的起始时间 起始站点
+        parcel->start_time = now;
+        parcel->times.push_back(now);
+        parcel->stations.push_back(parcel->src);
+        add_parcel(parcel, 1);
+        cnt++;
+    }
+    log() << "共产生了 " << cnt << " 个包裹" << endl;
 }
 void* handle_input(void *)
 {
@@ -87,7 +127,7 @@ void* handle_input(void *)
     return NULL;
 }
 
-int main()
+int main(int argc, char** args)
 {
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if(sock < 0)
@@ -129,6 +169,15 @@ int main()
     struct sockaddr_in client;
     socklen_t sock_length;
     sock_length = sizeof(struct sockaddr);
+
+    //提前产生包裹
+    if(argc == 2)
+    {
+        generate_parcels(100, EMUL_START_HOUR, EMUL_END_HOUR);
+    }
+    //启动matlab引擎
+    init_matlab();
+
     while(isRunning) 
     {
         new_sock = accept(sock, (struct sockaddr*)&client, &sock_length);

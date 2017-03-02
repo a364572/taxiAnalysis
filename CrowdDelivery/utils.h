@@ -7,7 +7,7 @@
 #include<vector>
 #include<sys/time.h>
 
-#define SERVER_IP "0.0.0.0"
+#define SERVER_IP "192.168.1.186"
 #define SERVER_PORT 9999
 #define PARCEL_ID_LENGTH 6
 #define EMULATION

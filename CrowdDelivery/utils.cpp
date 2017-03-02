@@ -125,8 +125,10 @@ void handle_register(int fd, map<string, string>& keyValue)
     user->email = keyValue["email"];
     user->telephone = keyValue["telephone"];
     user->gender = keyValue["gender"];
-    user->src = keyValue["src"];
-    user->dst = keyValue["dst"];
+    int srcIndex = atoi(keyValue["src"].data());
+    int dstIndex = atoi(keyValue["dst"].data());
+    user->src = stationIntToStr[srcIndex];
+    user->dst = stationIntToStr[dstIndex];
     if(userMap.find(user->email) == userMap.end())
     {
         userMap[user->email] = user;
@@ -159,8 +161,10 @@ void handle_get_route_parcel(int fd, map<string, string>& keyValue)
         send_all_message(fd, msg);
         return; 
     }
-    string src = keyValue["src"];
-    string dst = keyValue["dst"];
+    int srcIndex = atoi(keyValue["src"].data());
+    int dstIndex = atoi(keyValue["dst"].data());
+    string src = stationIntToStr[srcIndex];
+    string dst = stationIntToStr[dstIndex];
     get_parcel_count(src, dst, parcel, cnt);
 
     string response = "cnt_" + toString(cnt);
@@ -240,8 +244,10 @@ void handle_accept_parcel(int fd, map<string, string>& keyValue)
     //首先查询是否有符合当前线路的包裹
     int cnt = 0;
     string parcel;
-    string src = keyValue["src"];
-    string dst = keyValue["dst"];
+    int srcIndex = atoi(keyValue["src"].data());
+    int dstIndex = atoi(keyValue["dst"].data());
+    string src = stationIntToStr[srcIndex];
+    string dst = stationIntToStr[dstIndex];
     string email = keyValue["email"];
     get_parcel_count(src, dst, parcel, cnt);
     if(parcel.size() == PARCEL_ID_LENGTH)
@@ -250,7 +256,11 @@ void handle_accept_parcel(int fd, map<string, string>& keyValue)
         parcelMap[parcel]->times.push_back(t);
         parcelMap[parcel]->stations.push_back(src);
         parcelMap[parcel]->isCarried = true;
-        log() << "包裹 " << parcel << " 即将送往" << dst << endl;
+        log() << "包裹 " << parcel << " 即将送往 " << dst << " 实际目的地 " << parcelMap[parcel]->dst << endl;
+    }
+    else
+    {
+        log() << "当前没有合适的包裹" << endl;
     }
     //工作人员的话可以直接返回
     if(parcel.size() > 0)
@@ -317,9 +327,10 @@ void handle_deliver_parcel(int fd, map<string, string>& keyValue)
         return;
     }
 
+    int stationIndex = atoi(keyValue["station"].data());
+    string station = stationIntToStr[stationIndex];
     string parcelID = keyValue["parcel"];
     string userEmail = keyValue["email"];
-    string station = keyValue["station"];
     //工作人员才带有station字段
     if(station.size() > 0)
     {
@@ -352,7 +363,7 @@ void handle_deliver_parcel(int fd, map<string, string>& keyValue)
         else
         {
             log() << "包裹 " << parcelID << " 投递失败" << endl;
-            parcelID = "1";
+            parcelID = "0";
         }
         string msg = "parcel_" + parcelID;
         send_all_message(fd, msg);
@@ -668,22 +679,26 @@ void get_parcel_count(string src, string dst, string& id, int& cnt)
             int placeHour = tm->tm_hour;
             int courDid = stationStrToInt[dst];
             int courHour = current.tm_hour;
-            log() << src << " " << parcel->dst << " " << placeHour << " " << dst << " " << courHour << endl;
-            log() << sid << " " << did << " " << placeHour << " " << courDid << " " << courHour << endl;
+            //log() << src << " " << parcel->dst << " " << placeHour << " " << dst << " " << courHour << endl;
+            //log() << sid << " " << did << " " << placeHour << " " << courDid << " " << courHour << endl;
             int res = is_worth_delivering(sid, did, placeHour, courDid, courHour); 
             if(res > 0)
             {
                 //不同日期选择不同的路由方法
                 if(current.tm_mday % 3 == 0 && res % 2 == 1)
                 {
+                    log() << "我们的方法成功" << endl;
+                    log() << "data-oriented 的方法成功" << endl;
                     cnt++;
                 }
                 if(current.tm_mday % 3 == 1 && (res / 10) % 2 == 1)
                 {
+                    log() << "cost-oriented 的方法成功" << endl;
                     cnt++;
                 }
                 if(current.tm_mday % 3 == 2 && (res / 100) % 2 == 1)
                 {
+                    log() << "time-oriented 的方法成功" << endl;
                     cnt++;
                 }
                 if(cnt == 1)
@@ -720,6 +735,15 @@ int is_worth_delivering(int sid_i, int did_i, int placeHour_i, int courDid_i, in
         log() << "matlab引擎未启动" << endl;
         return 0;
     }
+    if((sid_i < 8 || sid_i == 11) && (courDid_i > 12 || courDid_i == 8))
+    {
+        return 0;
+    }
+    if((sid_i > 12 || sid_i == 8) && (courDid_i < 8 || courDid_i == 11))
+    {
+        return 0;
+    }
+
     static mxArray *sid = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
     static mxArray *did = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
     static mxArray *placeHour = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
@@ -742,7 +766,7 @@ int is_worth_delivering(int sid_i, int did_i, int placeHour_i, int courDid_i, in
     engPutVariable(ep, "courHour", courHour);  
     engEvalString(ep, "result=subway(sid, did, placeHour, courDid, courHour);");
 
-    log() << sid_i << " " << did_i << " " << placeHour_i << " " << courDid_i << " " << courHour_i << endl;
+    //log() << sid_i << " " << did_i << " " << placeHour_i << " " << courDid_i << " " << courHour_i << endl;
     int res = 0;
     mxArray *result = engGetVariable(ep, "result");
     if(result)

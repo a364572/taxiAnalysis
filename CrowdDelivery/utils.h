@@ -45,6 +45,12 @@ public:
 class Parcel
 {
 public:
+    enum ParcelServerType
+    {
+        Slow = 1,
+        Medium = 2,
+        Fast = 3,
+    };
     Parcel();
     std::string generateID();
 
@@ -57,7 +63,7 @@ public:
     std::vector<std::string> stations;
     time_t start_time;
     time_t end_time;
-    
+    ParcelServerType srv_type;
 };
 
 class Point;
@@ -85,7 +91,6 @@ void read_parcels(std::string);
 void write_users(std::string);
 void write_parcels(std::string);
 int init_matlab();
-int is_worth_delivering(int sid, int did, int placeHour, int courDid, int courHour);
 void exit_matlab();
 template<class T>
 std::string toString(T t);

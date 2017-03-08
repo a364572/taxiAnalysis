@@ -52,6 +52,7 @@ Parcel::Parcel()
     start_time = get_time();
     end_time = 0;
     id = generateID();
+    srv_type = Medium;
     while(parcelMap.find(id) != parcelMap.end())
     {
         id = generateID();
@@ -648,6 +649,76 @@ void write_parcels(string file)
     out_append.close();
 }
 
+//判断包裹是否要交给乘客，0:跳过，1:用我们的方法，2:Cost-oriented方法，3:time-oriented方法
+static int is_worth_delivering(int sid_i, int did_i, int place_hour_i, int place_min_i,
+        int place_sec_i, int srv_type_i, int cour_did_i, int cour_hour_i, int cour_min_i,
+        int cour_sec_i)
+{
+    if(!ep)
+    {
+        log() << "matlab引擎未启动" << endl;
+        return 0;
+    }
+    if((sid_i < 8 || sid_i == 11) && (cour_did_i > 12 || cour_did_i == 8))
+    {
+        return 0;
+    }
+    if((sid_i > 12 || sid_i == 8) && (cour_did_i < 8 || cour_did_i == 11))
+    {
+        return 0;
+    }
+
+    static mxArray *sid = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *did = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *place_hour = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *place_min = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *place_sec = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *srv_type = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *cour_did = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *cour_hour = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *cour_min = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *cour_sec = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    if(!sid || !did || !place_hour|| !place_min || !place_sec || !srv_type ||
+            !cour_did || ! cour_hour || !cour_min || !cour_sec)
+    {
+        log() << "指针初始化失败" << endl;
+        return 0;
+    }
+    memcpy(mxGetPr(sid), &sid_i, sizeof(int));
+    memcpy(mxGetPr(did), &did_i, sizeof(int));
+    memcpy(mxGetPr(place_hour), &place_hour_i, sizeof(int));
+    memcpy(mxGetPr(place_min), &place_min_i, sizeof(int));
+    memcpy(mxGetPr(place_sec), &place_sec_i, sizeof(int));
+    memcpy(mxGetPr(srv_type), &srv_type_i, sizeof(int));
+    memcpy(mxGetPr(cour_did), &cour_did_i, sizeof(int));
+    memcpy(mxGetPr(cour_hour), &cour_hour_i, sizeof(int));
+    memcpy(mxGetPr(cour_min), &cour_min_i, sizeof(int));
+    memcpy(mxGetPr(cour_sec), &cour_sec_i, sizeof(int));
+    engPutVariable(ep, "sid", sid);  
+    engPutVariable(ep, "did", did);  
+    engPutVariable(ep, "place_hour", place_hour);  
+    engPutVariable(ep, "place_min", place_min);  
+    engPutVariable(ep, "place_sec", place_sec);  
+    engPutVariable(ep, "srv_type", srv_type);  
+    engPutVariable(ep, "cour_did", cour_did);  
+    engPutVariable(ep, "cour_hour", cour_hour);  
+    engPutVariable(ep, "cour_min", cour_min);  
+    engPutVariable(ep, "cour_sec", cour_sec);  
+    //log() << sid_i << " " << did_i << " " << place_hour_i << " " << place_min_i << " " << place_sec_i << " " << srv_type_i << " " <<
+    //    cour_did_i << " " << cour_hour_i << " " << cour_min_i << " " << cour_sec_i << endl;
+        
+    engEvalString(ep, "result=subway(sid, did, place_hour, place_min, place_sec, srv_type, cour_did, cour_hour, cour_min, cour_sec);");
+
+    int res = 0;
+    mxArray *result = engGetVariable(ep, "result");
+    if(result)
+    {
+        res = mxGetPr(result)[0];
+        mxDestroyArray(result);
+    }
+    return res;
+}
+
 //得到某个线路的包裹个数和第一个合适的包裹 参数是乘客的起点和目的地
 void get_parcel_count(string src, string dst, string& id, int& cnt)
 {
@@ -663,6 +734,10 @@ void get_parcel_count(string src, string dst, string& id, int& cnt)
     struct tm current;
     struct tm *tm = localtime(&now);
     memcpy(&current, tm, sizeof(current));
+    int cour_did = stationStrToInt[dst];
+    int cour_hour = current.tm_hour;
+    int cour_min = current.tm_min;
+    int cour_sec = current.tm_sec;
 
     auto ite = parcelInStation[src].begin();
     while(ite != parcelInStation[src].end())
@@ -676,18 +751,17 @@ void get_parcel_count(string src, string dst, string& id, int& cnt)
             tm = localtime(&arrive);
             int sid = stationStrToInt[src];
             int did = stationStrToInt[parcel->dst];
-            int placeHour = tm->tm_hour;
-            int courDid = stationStrToInt[dst];
-            int courHour = current.tm_hour;
-            //log() << src << " " << parcel->dst << " " << placeHour << " " << dst << " " << courHour << endl;
-            //log() << sid << " " << did << " " << placeHour << " " << courDid << " " << courHour << endl;
-            int res = is_worth_delivering(sid, did, placeHour, courDid, courHour); 
+            int place_hour = tm->tm_hour;
+            int place_min = tm->tm_min;
+            int place_sec = tm->tm_sec;
+
+            int res = is_worth_delivering(sid, did, place_hour, place_min, place_sec, 
+                    parcel->srv_type, cour_did, cour_hour, cour_min, cour_sec); 
             if(res > 0)
             {
                 //不同日期选择不同的路由方法
                 if(current.tm_mday % 3 == 0 && res % 2 == 1)
                 {
-                    log() << "我们的方法成功" << endl;
                     log() << "data-oriented 的方法成功" << endl;
                     cnt++;
                 }
@@ -723,61 +797,11 @@ int init_matlab()
         log() << "Can't start MATLAB engine!"<<endl;   
         return -1;   
     }
-    engEvalString(ep, "cd ~/workplace/matlab/test;");
-    engEvalString(ep, "addpath('~/workplace/matlab/test');");
+    engEvalString(ep, "cd ~/workplace/matlab/mfile;");
+    engEvalString(ep, "addpath('~/workplace/matlab/mfile');");
     return 0;
-}
-//判断包裹是否要交给乘客，0:跳过，1:用我们的方法，2:Cost-oriented方法，3:time-oriented方法
-int is_worth_delivering(int sid_i, int did_i, int placeHour_i, int courDid_i, int courHour_i)
-{
-    if(!ep)
-    {
-        log() << "matlab引擎未启动" << endl;
-        return 0;
-    }
-    if((sid_i < 8 || sid_i == 11) && (courDid_i > 12 || courDid_i == 8))
-    {
-        return 0;
-    }
-    if((sid_i > 12 || sid_i == 8) && (courDid_i < 8 || courDid_i == 11))
-    {
-        return 0;
-    }
-
-    static mxArray *sid = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
-    static mxArray *did = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
-    static mxArray *placeHour = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
-    static mxArray *courDid = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
-    static mxArray *courHour= mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
-    if(!sid || !did || !placeHour || !courDid || !courHour)
-    {
-        log() << "指针初始化失败" << endl;
-        return 0;
-    }
-    memcpy(mxGetPr(sid), &sid_i, sizeof(int));
-    memcpy(mxGetPr(did), &did_i, sizeof(int));
-    memcpy(mxGetPr(placeHour), &placeHour_i, sizeof(int));
-    memcpy(mxGetPr(courDid), &courDid_i, sizeof(int));
-    memcpy(mxGetPr(courHour), &courHour_i, sizeof(int));
-    engPutVariable(ep, "sid", sid);  
-    engPutVariable(ep, "did", did);  
-    engPutVariable(ep, "placeHour", placeHour);  
-    engPutVariable(ep, "courDid", courDid);  
-    engPutVariable(ep, "courHour", courHour);  
-    engEvalString(ep, "result=subway(sid, did, placeHour, courDid, courHour);");
-
-    //log() << sid_i << " " << did_i << " " << placeHour_i << " " << courDid_i << " " << courHour_i << endl;
-    int res = 0;
-    mxArray *result = engGetVariable(ep, "result");
-    if(result)
-    {
-        res = mxGetPr(result)[0];
-        mxDestroyArray(result);
-    }
-    return res;
 }
 void exit_matlab()
 {
     engClose(ep);
 }
-

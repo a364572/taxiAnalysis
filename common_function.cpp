@@ -464,14 +464,19 @@ void buildRoute(string file)
 
     set<string> points;
     map<int, map<string, float>> totalRoute;
+    map<int, map<string, float>> totalDif;
     map<int, map<string, float>> direct;
+    map<int, map<string, float>> directDif;
     for(int i = MIN_HOUR; i < MAX_HOUR; i++)
     {
         totalRoute[i] = map<string, float>();
+        totalDif[i] = map<string, float>();
         direct[i] = map<string, float>();
+        directDif[i] = map<string, float>();
     }
 
     //读取历史数据
+    int cnt = 0;
     string line;
     while(getline(in, line))
     {
@@ -479,28 +484,46 @@ void buildRoute(string file)
         points.insert(vec[0]);
         points.insert(vec[1]);
         string od = vec[0] + " " + vec[1];
+        auto position = split(vec[0], ',');
+        string s_lat = position[0].substr(0, 2) + "." + position[0].substr(2);
+        string s_lng = position[1].substr(0, 3) + "." + position[1].substr(3);
+        position = split(vec[1], ',');
+        string e_lat = position[0].substr(0, 2) + "." + position[0].substr(2);
+        string e_lng = position[1].substr(0, 3) + "." + position[1].substr(3);
+        Point start(s_lat, s_lng);
+        Point end(e_lat, e_lng);
+        float distance = start.getDistance(end);
         for(decltype(vec.size()) i = 2; i < vec.size(); i++)
         {
             auto tmp = split(vec[i], '_');
             int hour = atoi(tmp[0].data());
             float avg = strtof(tmp[2].data(), NULL);
-            float mid = strtof(tmp[5].data(), NULL);
-            if(avg < mid)
+            float avg2 = strtof(tmp[3].data(), NULL);
+
+            if( avg < 0.1 || distance / avg / 60 > 30)
             {
-                direct[hour][od] = avg;
+                cnt++;
+                //cout << start.latitude <<" " << start.longitude<< " " << end.latitude << " "
+                //    << end.longitude << " " << distance << " " << avg << endl;
+                continue;
             }
-            else
+            directDif[hour][od] = avg2 - avg * avg;
+            if(avg < 2)
             {
-                direct[hour][od] = mid;
+                avg = 2;
             }
+            direct[hour][od] = avg;
         }
     }
     in.close();
-    cout << points.size() << endl;
+
+    cout << cnt << endl;
 
     ShortestPathTask::points = &points;
     ShortestPathTask::totalRouteMap = &totalRoute;
+    ShortestPathTask::totalDifMap = &totalDif;
     ShortestPathTask::directMap = &direct;
+    ShortestPathTask::directDifMap = &directDif;
 
     PthreadPool pthreadPool;
     for(int hour = MIN_HOUR; hour < MAX_HOUR; hour++)
@@ -525,6 +548,10 @@ void buildRoute(string file)
                 if(totalRoute[i].find(od) != totalRoute[i].end())
                 {
                     out = out + " " + to_string(i) + "_" + to_string(totalRoute[i][od]);
+                }
+                if(totalDif[i].find(od) != totalDif[i].end())
+                {
+                    out = out + "_" + to_string(totalDif[i][od]);
                 }
             }
             if(od.size() < out.size())

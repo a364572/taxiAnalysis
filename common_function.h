@@ -14,8 +14,8 @@
 #define MIN_OD_DISTANCE 5000
 #define MAX_OD_DISTANCE 5000
 #define MIN_OD_SPEED 3.0 
-#define MIN_HOUR 6
-#define MAX_HOUR 7
+#define MIN_HOUR 7
+#define MAX_HOUR 20 
 #define MIN_LATITUDE 30900
 //#define MIN_LATITUDE 30700
 #define MAX_LATITUDE 31400
@@ -77,6 +77,15 @@ struct Info
         this->index = info.index;
         return *this;
     }
+};
+struct TestOD
+{
+    std::string src;
+    std::string dst;
+    int begin;
+    int end;
+    int distance;
+    int flag;
 };
 //读取一行 返回成功读取的字节数
 std::string get_line(int fd);

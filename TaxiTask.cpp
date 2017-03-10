@@ -22,16 +22,20 @@ set<std::string>* MapTask::filterSet = nullptr;
 map<string, map<int, set<string>>>* TimeTask::zoneMap = nullptr;
 set<std::string>* TimeTask::filterSet = nullptr;
 
+int ResultTask::cnt = 0;
 map<string, Station>* ResultTask::stationMap = nullptr;
 map<string, map<int, Info>>* ResultTask::subwayMap = nullptr;
 map<string, map<int, Info>>* ResultTask::waitTaxiMap = nullptr;
 map<string, map<int, TripTime>>* ResultTask::taxiODMap = nullptr;
+map<string, int>* ResultTask::taxiDisMap = nullptr;
 map<string, int>* ResultTask::subwayPriceMap = nullptr;
 int ResultTask::fd = 0;
 
 set<string>* ShortestPathTask::points = nullptr;
 map<int, map<string, float>>* ShortestPathTask::directMap = nullptr;
+map<int, map<string, float>>* ShortestPathTask::directDifMap = nullptr;
 map<int, map<string, float>>* ShortestPathTask::totalRouteMap = nullptr;
+map<int, map<string, float>>* ShortestPathTask::totalDifMap = nullptr;
 
 TaxiTask::TaxiTask(Point p, string c, int i) :
    point(p), card(c), zoneIndex(i)
@@ -395,8 +399,9 @@ string ResultTask::getNeareastStation(string position, float& min_distance)
     }
     return min_station;
 }
+
 //得到一个OD通过乘坐出租车所需的时间 包括等车时间和坐车时间
-Info ResultTask::getInfoOfTaxi(string src, string dst, int hour)
+Info ResultTask::getInfoOfTaxi(string src, string dst, int second)
 {
     Info info;
     auto vec1 = split(src, ',');
@@ -405,6 +410,8 @@ Info ResultTask::getInfoOfTaxi(string src, string dst, int hour)
     int longitude1 = atoi(vec1[1].data());
     int latitude2 = atoi(vec2[0].data());
     int longitude2 = atoi(vec2[1].data());
+    int hour = second / 3600;
+    int begin_min = (second % 3600) / 60;
     if(hour >= MAX_HOUR || waitTaxiMap->find(src) == waitTaxiMap->end() || 
             waitTaxiMap->at(src).find(hour) == waitTaxiMap->at(src).end())
     {
@@ -412,10 +419,11 @@ Info ResultTask::getInfoOfTaxi(string src, string dst, int hour)
     }
     float avg = waitTaxiMap->at(src)[hour].avg;
     float dif = waitTaxiMap->at(src)[hour].dif;
-    if (avg >= 60)
+    if (begin_min + avg >= 60)
     {
         hour++;
     }
+    //以当前区域为中心的9个区域查找
     vector<string> starts, ends;
     vector<int> diff;
     diff.push_back(0);
@@ -436,6 +444,7 @@ Info ResultTask::getInfoOfTaxi(string src, string dst, int hour)
         }
     }
 
+    bool found = false;
     for(auto start : starts)
     {
         for(auto end : ends)
@@ -444,12 +453,28 @@ Info ResultTask::getInfoOfTaxi(string src, string dst, int hour)
             if(taxiODMap->find(od) != taxiODMap->end() &&
                     taxiODMap->at(od).find(hour) != taxiODMap->at(od).end())
             {
+                /**************时间****************/
                 avg += taxiODMap->at(od)[hour].avg;
                 dif += taxiODMap->at(od)[hour].dif;
                 info.avg = avg;
-                info.dif = dif;
+                found = true;
+                break;
+            }
+        }
+        if(found)
+        {
+            break;
+        }
+    }
+    for(auto start : starts)
+    {
+        for(auto end : ends)
+        {
+            string od = start + " " + end;
+            if(taxiDisMap->find(od) != taxiDisMap->end())
+            {
                 /**************价格****************/
-                info.price = taxiODMap->at(od)[hour].avg;
+                info.price = taxiDisMap->at(od);
                 return info;
             }
         }
@@ -457,22 +482,24 @@ Info ResultTask::getInfoOfTaxi(string src, string dst, int hour)
     return info;
 }
 //得到一个OD通过乘坐地铁所需的时间
-Info ResultTask::getInfoOfSubway(string src, string dst, int hour)
+Info ResultTask::getInfoOfSubway(string src, string dst, int second)
 {
     Info info;
     float srcDistance, dstDistance;
+    int hour = second / 3600;
     string srcStation = getNeareastStation(src, srcDistance);
     string dstStation = getNeareastStation(dst, dstDistance);
-    if(srcDistance > 2000 || dstDistance > 2000)
-    {
-        return info;
-    }
+    //if(srcDistance > 2000 || dstDistance > 2000)
+    //{
+    //    return info;
+    //}
     if(srcStation.size() > 0 && dstStation.size() > 0)
     {
         string od = srcStation + " " + dstStation;
         if(subwayMap->find(od) != subwayMap->end() &&
                 subwayMap->at(od).find(hour) != subwayMap->at(od).end())
         {
+            /**************时间****************/
             info.avg = (srcDistance + dstDistance) / WALK_SPEED / 60 +
                 subwayMap->at(od)[hour].avg;
             info.dif = subwayMap->at(od)[hour].dif;
@@ -509,188 +536,216 @@ bool ResultTask::compareInfo(Info& info1, Info& info2, int method)
     }
     return false;
 }
-void ResultTask::calculateMinTime(string src, string dst)
+void ResultTask::calculateMinTime(TestOD testOD)
 {
-    for(int hour = MIN_HOUR; hour < MAX_HOUR; hour++)
+    string src = testOD.src;
+    string dst = testOD.dst;
+    string od = src + " " + dst;
+    int second = testOD.begin;
+    int hour = second / 3600;
+    if(waitTaxiMap->find(src) == waitTaxiMap->end() || 
+            waitTaxiMap->at(src).find(hour) == waitTaxiMap->at(src).end())
     {
-        string od = src + " " + dst;
-        if(waitTaxiMap->find(src) == waitTaxiMap->end() || waitTaxiMap->at(src)[hour].avg < 0)
+        string out = src + " " + dst + " " + to_string(second) + " -1\n"; 
+        pthread_mutex_lock(&mutex);
+        write(fd, out.data(), out.size());
+        cnt++;
+        pthread_mutex_unlock(&mutex);
+        return;
+    }
+    //只搭乘地铁
+    Info info1 = getInfoOfSubway(src, dst, second);
+    //只搭乘出租车
+    Info info2 = getInfoOfTaxi(src, dst, second);
+    //先坐地铁再坐出租车
+    Info info3_time, info3_price;
+    for(auto ite : *stationMap)
+    {
+        string mid = ite.second.positionString;
+        Info tmp1 = getInfoOfSubway(src, mid, second);
+        if(tmp1.avg < 0)
         {
             continue;
         }
-        //只搭乘地铁
-        Info info1 = getInfoOfSubway(src, dst, hour);
-        //只搭乘出租车
-        Info info2 = getInfoOfTaxi(src, dst, hour);
-        //先坐地铁再坐出租车
-        Info info3_time, info3_price;
-        for(auto ite : *stationMap)
+        int midSec = second + (tmp1.avg + WALK_TIME) * 60;
+        Info tmp2 = getInfoOfTaxi(mid, dst, midSec); 
+        if(tmp2.avg < 0)
         {
-            string mid = ite.second.positionString;
-            Info tmp1 = getInfoOfSubway(src, mid, hour);
-            if(tmp1.avg < 0)
+            continue;
+        }
+        tmp1.avg += tmp2.avg + WALK_TIME;
+        tmp1.dif += tmp2.dif;
+        tmp1.price += tmp2.price;
+        if(compareInfo(tmp1, info3_time, METHOD_TIME)) 
+        {
+            info3_time = tmp1;
+        }
+        if(compareInfo(tmp1, info3_price, METHOD_PRICE))
+        {
+            info3_price = tmp1;
+        }
+    }
+    //先坐出租车再坐地铁
+    Info info4_time, info4_price;
+    for(auto ite : *stationMap)
+    {
+        string mid = ite.second.positionString;
+        Info tmp1 = getInfoOfTaxi(src, mid, second); 
+        if(tmp1.avg < 0)
+        {
+            continue;
+        }
+        int midSec = second + (tmp1.avg + WALK_TIME) * 60;
+        Info tmp2 = getInfoOfSubway(mid, dst, midSec);
+        if(tmp2.avg < 0)
+        {
+            continue;
+        }
+        tmp1.avg += tmp2.avg + WALK_TIME;
+        tmp1.dif += tmp2.dif;
+        tmp1.price += tmp2.price;
+        if(compareInfo(tmp1, info4_time, METHOD_TIME)) 
+        {
+            info4_time = tmp1;
+        }
+        if(compareInfo(tmp1, info4_price, METHOD_PRICE)) 
+        {
+            info4_price = tmp1;
+        }
+    }
+    //先坐出租车 再坐地铁 最后再坐出租车
+    Info info5_time, info5_price;
+    for(auto ite1 : *stationMap)
+    {
+        string midSrc = ite1.second.positionString;
+        Info tmp1 = getInfoOfTaxi(src, midSrc, second); 
+        if(tmp1.avg < 0)
+        {
+            continue;
+        }
+        for(auto ite2 : *stationMap)
+        {
+            string midDst = ite2.second.positionString;
+            if(midSrc == midDst)
             {
                 continue;
             }
-            int midHour = hour + (tmp1.avg + WALK_TIME) / 60;
-            Info tmp2 = getInfoOfTaxi(mid, dst, midHour); 
+            int midSrcSec = second + (tmp1.avg + WALK_TIME) * 60;
+            Info tmp2 = getInfoOfSubway(midSrc, midDst, midSrcSec);
             if(tmp2.avg < 0)
             {
                 continue;
             }
-            tmp1.avg += tmp2.avg + WALK_TIME;
-            tmp1.dif += tmp2.dif;
-            tmp1.price += tmp2.price;
-            if(compareInfo(tmp1, info3_time, METHOD_TIME)) 
-            {
-                info3_time = tmp1;
-            }
-            if(compareInfo(tmp1, info3_price, METHOD_PRICE))
-            {
-                info3_price = tmp1;
-            }
-        }
-        //先坐出租车再坐地铁
-        Info info4_time, info4_price;
-        for(auto ite : *stationMap)
-        {
-            string mid = ite.second.positionString;
-            Info tmp1 = getInfoOfTaxi(src, mid, hour); 
-            if(tmp1.avg < 0)
+            int midDstSec = second + (tmp1.avg + tmp2.avg + 2 * WALK_TIME) * 60;
+            Info tmp3 = getInfoOfTaxi(midDst, dst, midDstSec);
+            if(tmp3.avg < 0)
             {
                 continue;
             }
-            int midHour = hour + (tmp1.avg + WALK_TIME) / 60;
-            Info tmp2 = getInfoOfSubway(mid, dst, midHour);
-            if(tmp2.avg < 0)
-            {
-                continue;
-            }
-            tmp1.avg += tmp2.avg + WALK_TIME;
-            tmp1.dif += tmp2.dif;
-            tmp1.price += tmp2.price;
-            if(compareInfo(tmp1, info4_time, METHOD_TIME)) 
-            {
-                info4_time = tmp1;
-            }
-            if(compareInfo(tmp1, info4_price, METHOD_PRICE)) 
-            {
-                info4_price = tmp1;
-            }
-        }
-        //先坐出租车 再坐地铁 最后再坐出租车
-        Info info5_time, info5_price;
-        for(auto ite1 : *stationMap)
-        {
-            string midSrc = ite1.second.positionString;
-            Info tmp1 = getInfoOfTaxi(src, midSrc, hour); 
-            if(tmp1.avg < 0)
-            {
-                continue;
-            }
-            for(auto ite2 : *stationMap)
-            {
-                string midDst = ite2.second.positionString;
-                if(midSrc == midDst)
-                {
-                    continue;
-                }
-                int midSrcHour = hour + (tmp1.avg + WALK_TIME) / 60;
-                Info tmp2 = getInfoOfSubway(midSrc, midDst, midSrcHour);
-                if(tmp2.avg < 0)
-                {
-                    continue;
-                }
-                int midDstHour = hour + (tmp1.avg + tmp2.avg + 2 * WALK_TIME) / 60;
-                Info tmp3 = getInfoOfTaxi(midDst, dst, midDstHour);
-                if(tmp3.avg < 0)
-                {
-                    continue;
-                }
 
-                tmp1.avg += tmp2.avg + tmp3.avg + 2 * WALK_TIME;
-                tmp1.dif += tmp2.dif + tmp3.dif;
-                tmp1.price += tmp2.price + tmp3.price;
-                if(compareInfo(tmp1, info5_time, METHOD_TIME)) 
-                {
-                    info5_time = tmp1;
-                }
-                if(compareInfo(tmp1, info5_price, METHOD_PRICE)) 
-                {
-                    info5_price = tmp1;
-                }
+            tmp1.avg += tmp2.avg + tmp3.avg + 2 * WALK_TIME;
+            tmp1.dif += tmp2.dif + tmp3.dif;
+            tmp1.price += tmp2.price + tmp3.price;
+            if(compareInfo(tmp1, info5_time, METHOD_TIME)) 
+            {
+                info5_time = tmp1;
+            }
+            if(compareInfo(tmp1, info5_price, METHOD_PRICE)) 
+            {
+                info5_price = tmp1;
             }
         }
-        Info info_time, info_price; 
-        int index_time = 0, index_price = 0;
-        if(compareInfo(info1, info_time, METHOD_TIME))
-        {
-            info_time = info1;
-            index_time = 1;
-        }
-        if(compareInfo(info3_time, info_time, METHOD_TIME))
-        {
-            info_time = info3_time;
-            index_time = 3;
-        }
-        if(compareInfo(info4_time, info_time, METHOD_TIME))
-        {
-            info_time = info4_time;
-            index_time = 4;
-        }
-        if(compareInfo(info5_time, info_time, METHOD_TIME))
-        {
-            info_time = info5_time;
-            index_time = 5;
-        }
-        if(compareInfo(info1, info_price, METHOD_PRICE))
-        {
-            info_price = info1;
-            index_price = 1;
-        }
-        if(compareInfo(info3_price, info_price, METHOD_PRICE))
-        {
-            info_price = info3_price;
-            index_price = 3;
-        }
-        if(compareInfo(info4_price, info_price, METHOD_PRICE))
-        {
-            info_price = info4_price;
-            index_price = 4;
-        }
-        if(compareInfo(info5_price, info_price, METHOD_PRICE))
-        {
-            info_price = info5_price;
-            index_price = 5;
-        }
-        if(fd > 0)
-        {
-            string out = src + " " + dst + " " + to_string(hour) + " " 
-                + to_string(index_time) + " " + to_string(index_price) + " " 
-                + to_string(info_time.avg) + " " + to_string(info_price.avg) + " "
-                + to_string(info_time.price) + " " + to_string(info_price.price) + " "
-                + to_string(info2.avg) + " " + to_string(info2.price) + "\n";
-            pthread_mutex_lock(&mutex);
-            write(fd, out.data(), out.size());
-            pthread_mutex_unlock(&mutex);
-        }
+    }
+    Info info_time, info_price; 
+    int index_time = 0, index_price = 0;
+    if(compareInfo(info1, info_time, METHOD_TIME))
+    {
+        info_time = info1;
+        index_time = 1;
+    }
+    if(compareInfo(info3_time, info_time, METHOD_TIME))
+    {
+        info_time = info3_time;
+        index_time = 3;
+    }
+    if(compareInfo(info4_time, info_time, METHOD_TIME))
+    {
+        info_time = info4_time;
+        index_time = 4;
+    }
+    if(compareInfo(info5_time, info_time, METHOD_TIME))
+    {
+        info_time = info5_time;
+        index_time = 5;
+    }
+    if(compareInfo(info1, info_price, METHOD_PRICE))
+    {
+        info_price = info1;
+        index_price = 1;
+    }
+    if(compareInfo(info3_price, info_price, METHOD_PRICE))
+    {
+        info_price = info3_price;
+        index_price = 3;
+    }
+    if(compareInfo(info4_price, info_price, METHOD_PRICE))
+    {
+        info_price = info4_price;
+        index_price = 4;
+    }
+    if(compareInfo(info5_price, info_price, METHOD_PRICE))
+    {
+        info_price = info5_price;
+        index_price = 5;
+    }
+    int time_best = index_time, price_best = index_price;
+    if(info2.avg < info_time.avg)
+    {
+        time_best = 2;
+    }
+    if(info2.price < info_price.price)
+    {
+        price_best = 2;
+    }
+    if(fd > 0)
+    {
+        int minutes = (testOD.end - testOD.begin) / 60 + 1;
+        //index_time index_price是不考虑方案2时的最优方案
+        //输出内容：起点 终点 开始时间点 
+        //最短时间下标 最低价格下标 
+        //最短时间的时间 最低价格的时间 
+        //最短时间的价格 最低价格的价格 
+        //方案2的时间 方案2的价格
+        //历史数据的实际 历史数据的价格
+        //总的最短时间方案 总的最低价格方案
+        string out = src + " " + dst + " " + to_string(second) + " " 
+            + to_string(index_time) + " " + to_string(index_price) + " " 
+            + to_string(info_time.avg) + " " + to_string(info_price.avg) + " "
+            + to_string(info_time.price) + " " + to_string(info_price.price) + " "
+            + to_string(info2.avg) + " " + to_string(info2.price) + " " 
+            + to_string(minutes) + " " + to_string(testOD.distance) + " " 
+            + to_string(time_best) + " " + to_string(price_best) + "\n";
+        pthread_mutex_lock(&mutex);
+        write(fd, out.data(), out.size());
+        cnt++;
+        pthread_mutex_unlock(&mutex);
     }
 }
 
 void ResultTask::run()
 {
-    auto vec = split(record, ' ');
-    if(checkPosition(vec[0]) || checkPosition(vec[1]))
+    if(checkPosition(od.src) || checkPosition(od.dst))
     {
         return;
     }
-    calculateMinTime(vec[0], vec[1]);
+    calculateMinTime(od);
 }
 
 void ShortestPathTask::run()
 {
     string src = point;
     map<string, float> currentRoute;
+    map<string, float> currentDif;
     set<string> currentPoint;
     currentPoint.insert(src);
     for(string dst : *points)
@@ -699,6 +754,7 @@ void ShortestPathTask::run()
         if(directMap->at(hour).find(od) != directMap->at(hour).end())
         {
             currentRoute[od] = directMap->at(hour)[od];
+            currentDif[od] = directDifMap->at(hour)[od];
         }
     }
 
@@ -727,6 +783,7 @@ void ShortestPathTask::run()
         }
         currentPoint.insert(minDst);
         currentRoute[src + " " + minDst] = minDelay;
+        float minDif = currentDif[src + " " + minDst];
         //更新起点到其他节点的距离
         for(string dst : *points)
         {
@@ -747,6 +804,7 @@ void ShortestPathTask::run()
                         || currentRoute[od] > minDelay + directMap->at(currentHour)[second]))
             {
                 currentRoute[od] = minDelay + directMap->at(currentHour)[second];
+                currentDif[od] = minDif + directDifMap->at(currentHour)[second];
             }
         }
     }
@@ -757,6 +815,12 @@ void ShortestPathTask::run()
         totalRouteMap->at(hour)[ite->first] = ite->second;
         ite++;
     }
+    auto ite1 = currentDif.begin();
+    while(ite1 != currentDif.end())
+    {
+        totalDifMap->at(hour)[ite1->first] = ite1->second;
+        ite1++;
+    }
     pthread_mutex_unlock(&mutex);
-    cout << point << endl;
+    //cout << point << " " << currentRoute.size() << endl;
 }

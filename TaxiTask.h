@@ -76,17 +76,20 @@ public:
     static std::map<std::string, std::map<int, Info>>* subwayMap;
     static std::map<std::string, std::map<int, Info>>* waitTaxiMap;
     static std::map<std::string, std::map<int, TripTime>>* taxiODMap;
+    static std::map<std::string, int>* taxiDisMap;
     static std::map<std::string, int>* subwayPriceMap;
     static pthread_mutex_t mutex;
     static int fd;
 
+    static int cnt;
     static std::string getNeareastStation(std::string, float&);
     static Info getInfoOfTaxi(std::string, std::string, int); 
     static Info getInfoOfSubway(std::string, std::string, int); 
-    static void calculateMinTime(std::string, std::string);
+    static void calculateMinTime(TestOD);
     static bool compareInfo(Info&, Info&, int);
 
     std::string record;
+    TestOD od;
 };
 
 //最短路径
@@ -100,7 +103,9 @@ public:
 
     static std::set<std::string>* points;
     static std::map<int, std::map<std::string, float>>* directMap;
+    static std::map<int, std::map<std::string, float>>* directDifMap;
     static std::map<int, std::map<std::string, float>>* totalRouteMap;
+    static std::map<int, std::map<std::string, float>>* totalDifMap;
     static pthread_mutex_t mutex;
 };
 #endif

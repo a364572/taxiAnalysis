@@ -15,6 +15,7 @@
 #include<map>
 #include<algorithm>
 #include<fstream>
+#include<iostream>
 #include "utils.h"
 #include "commom.h"
 
@@ -23,6 +24,15 @@ using namespace std;
 
 map<string, int> stationStrToInt;
 map<int, string> stationIntToStr;
+ostream& newlog(time_t now)
+{
+    struct tm *tm = localtime(&now);
+    char tmp[64];
+    memset(tmp, 0, sizeof(tmp));
+    sprintf(tmp, "%4d-%02d-%02d %02d:%02d:%02d : ", tm->tm_year + 1900, 
+            tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
+    return cout << tmp;
+}
 struct Courier 
 {
     time_t in_time;
@@ -38,7 +48,7 @@ void read_record(map<int, vector<Courier>>& courier_map)
     in.open("simple", ios::in);
     if(!in.is_open())
     {
-        log() << "文件打开失败" << endl;
+        newlog(get_time()) << "文件打开失败" << endl;
         return;
     }
     //获取今天的日期
@@ -53,29 +63,53 @@ void read_record(map<int, vector<Courier>>& courier_map)
         auto vec = split(line, ",");
         if(vec.size() == 4)
         {
+    //  会展中心6->大剧院7->市民中心11
+    //  老街8->少年宫13->布吉14->深圳北站15
             int srcIndex = stationStrToInt[vec[1]];
             int dstIndex = stationStrToInt[vec[3]];
             if(srcIndex != 6 && srcIndex != 7 && srcIndex != 8 &&
-                    srcIndex != 13 && srcIndex != 15)
+                    srcIndex != 13 && srcIndex != 14)
             {
                 continue;
             }
-            if(dstIndex != 7 && dstIndex != 11 && dstIndex != 13 &&
-                    dstIndex != 15 && dstIndex != 14)
+            if(dstIndex != 6 && dstIndex != 7 && dstIndex != 11 && dstIndex != 8 &&
+                    dstIndex != 13 && dstIndex != 14 && dstIndex != 15)
             {
                 continue;
             }
+	    if(
+	        (srcIndex == 8 && dstIndex == 13) ||
+	        (srcIndex == 8 && dstIndex == 14) ||
+	        (srcIndex == 8 && dstIndex == 15) ||
+	        (srcIndex == 13 && dstIndex == 8) ||
+	        (srcIndex == 13 && dstIndex == 14) ||
+	        (srcIndex == 13 && dstIndex == 15) ||
+	        (srcIndex == 14 && dstIndex == 8) ||
+	        (srcIndex == 14 && dstIndex == 13) ||
+	        (srcIndex == 14 && dstIndex == 15)) 
+	    //if(srcIndex > 0)
+	    {
             struct tm begin;
             struct tm end;
             time_t t1, t2;
             strptime(vec[0].data(), "%Y-%m-%d %H:%M:%S", &begin);
             strptime(vec[2].data(), "%Y-%m-%d %H:%M:%S", &end);
-            if(begin.tm_hour < EMUL_START_HOUR || begin.tm_hour >= EMUL_END_HOUR)
+            if(begin.tm_hour < EMUL_START_HOUR || begin.tm_hour > EMUL_END_HOUR)
             {
                 continue;
             }
-            //以二十分之一的概率采样
-            int left_prob = random() % 20;
+            //以十分之一的概率采样
+	    int sample_rate = 3;
+	    //int sample_rate = 3;
+	    if(srcIndex == 8 && dstIndex == 15)
+	    {
+		sample_rate = 6;
+	    }
+	    if(srcIndex == 15 && dstIndex == 8)
+	    {
+		sample_rate = 10;
+	    }
+            int left_prob = random() % sample_rate;
             if(left_prob == 0)
             {
                 if(courier_map.find(srcIndex) == courier_map.end())
@@ -99,9 +133,30 @@ void read_record(map<int, vector<Courier>>& courier_map)
                 courier_map[srcIndex].push_back(courier);
                 cnt++;
             }
+	    }
         }
     }
-    log() << "总共读取了 " << cnt << " 条记录" << endl;
+    newlog(get_time()) << "总共读取了 " << cnt << " 条记录" << endl;
+    auto ite = courier_map.begin();
+    while(ite != courier_map.end())
+    {
+	int index = ite->first;
+	for(int i = 0; i < courier_map[index].size(); i++)
+	{
+	    for(int j = 1; j < courier_map[index].size() - i; j++)
+	    {
+		auto first = courier_map[index][j - 1];
+		auto second = courier_map[index][j];
+		if(first.in_time > second.in_time)
+		{
+			auto cour = courier_map[index][j - 1];
+			courier_map[index][j - 1] = courier_map[index][j];
+			courier_map[index][j] = cour;
+		}
+	    }
+	}
+	ite++;
+    }
 }
 int get_socket_fd()
 {
@@ -115,10 +170,11 @@ int get_socket_fd()
     sockaddr.sin_family = AF_INET;
     sockaddr.sin_port = htons(SERVER_PORT);
     inet_aton(SERVER_IP, &sockaddr.sin_addr);
+//    inet_aton("192.168.1.186", &sockaddr.sin_addr);
 
     if(connect(fd, (struct sockaddr*)&sockaddr, sizeof(struct sockaddr)) != 0)
     {
-        log() << "连接服务器失败" << endl;
+        newlog(get_time()) << "连接服务器失败" << endl;
         close(fd);
         return -1;
     }
@@ -196,7 +252,7 @@ map<string, int> read_run_time()
         }
         ite++;
     }
-    log() << "总的运行时间条数 " << m.size() << endl;
+    newlog(get_time()) << "总的运行时间条数 " << m.size() << endl;
     return m;
 }
 int main()
@@ -215,7 +271,7 @@ int main()
     memcpy(&begin_time, tm, sizeof(begin_time));
 
     //为每个站点创建工作人员
-    log() << "开始注册" << endl;
+    newlog(get_time()) << "开始注册" << endl;
     int i = 0;
     while(i++ < stationSize)
     {
@@ -238,7 +294,7 @@ int main()
         if(fd < 0)
         {
             i--;
-            log() << "套接字创建失败" << endl;
+            newlog(get_time()) << "套接字创建失败" << endl;
             sleep(5);
             continue;
         }
@@ -250,7 +306,7 @@ int main()
         if(key_value.find("email") == key_value.end())
         {
             i--;
-            log() << "车站 " << stationIntToStr[srcIndex] << " 注册失败" << endl;
+            newlog(get_time()) << "车站 " << stationIntToStr[srcIndex] << " 注册失败" << endl;
             sleep(5);
             continue;
         }
@@ -269,19 +325,20 @@ int main()
     //进行仿真
     int left_parcel = 0;
     i = 0;
-    log() << "开始仿真" << endl;
     begin_time.tm_hour = EMUL_START_HOUR;
     begin_time.tm_min = begin_time.tm_sec = 0;
-    while(begin_time.tm_hour < EMUL_END_HOUR || left_parcel > 0)
+    newlog(mktime(&begin_time)) << "开始仿真" << endl;
+    while(begin_time.tm_hour <= EMUL_END_HOUR + 3 || left_parcel > 0)
     {
         i++;
+	time_t base_time = mktime(&begin_time);
+	base_time += 1;
+        tm = localtime(&base_time);
+        memcpy(&begin_time, tm, sizeof(begin_time));
         if(i % 30 == 0)
         {
-            log() << "正在进行实验" << endl;
+            //newlog(base_time) << "正在进行实验" << endl;
         }
-        begin_t = get_time();
-        tm = localtime(&begin_t);
-        memcpy(&begin_time, tm, sizeof(begin_time));
         //遍历每个车站进行包裹投递和确认
         auto ite = courier_map.begin();
         while(ite != courier_map.end())
@@ -294,31 +351,42 @@ int main()
             {
                 //遍历每个到达的乘客 检查是否可以投递
                 auto courier = ins[j];
+		tm = localtime(&courier.in_time);
+		if(tm->tm_hour >= EMUL_END_HOUR)
+		{
+			continue;
+		}
+		
                 if(courier.src != current_station)
                 {
-                    log() << "进站乘客错误" << endl;
+                    newlog(base_time) << "进站乘客错误" << endl;
                 }
-                if(courier.in_time <= begin_t)
+                if(courier.in_time <= base_time)
                 {
                     string msg = "5email_" + email_map[index] +
                         " src_" + to_string(stationStrToInt[courier.src]) +
-                        " dst_" + to_string(stationStrToInt[courier.dst]);
+                        " dst_" + to_string(stationStrToInt[courier.dst]) +
+			" time_" + to_string(courier.in_time);
                     int fd = get_socket_fd();
                     if(fd < 0)
                     {
-                        log() << "套接字创建失败" << endl;
+                        newlog(base_time) << "套接字创建失败" << endl;
                         sleep(5);
                         continue;
                     }
                     send_all_message(fd, msg);
                     string response = recv_all_message(fd);
                     close(fd);
+                    if(response.find("\n") != string::npos)
+                    {
+                        response = response.substr(0, response.find("\n"));
+                    }
                     auto key_value = decodeRequese(response);
                     ins.erase(ins.begin() + j);
                     j--;
                     //有合适的包裹
                     if(key_value.find("parcel") != key_value.end() &&
-                            key_value["parcel"].size() == PARCEL_ID_LENGTH)
+                            key_value["parcel"].size() >= PARCEL_ID_LENGTH)
                     {
                         //设置乘客的出站时间和地点
                         int dstIndex = stationStrToInt[courier.dst];
@@ -328,8 +396,9 @@ int main()
                         }
                         courier.parcel = key_value["parcel"];
                         arrive_map[stationStrToInt[courier.dst]].push_back(courier);
-                        left_parcel++;
-                        log() << "包裹 " << courier.parcel << " 将从 " <<
+			auto vec = split(key_value["parcel"], "-");
+                        left_parcel += vec.size();
+                        newlog(base_time) << "包裹 " << courier.parcel << " 将从 " <<
                             courier.src << " 送往 " << courier.dst << endl;
                     }
                 }
@@ -341,43 +410,54 @@ int main()
                 auto courier = outs[j];
                 if(courier.dst != current_station)
                 {
-                    log() << "出站乘客错误" << endl;
+                    newlog(base_time) << "出站乘客错误" << endl;
                 }
-                if(courier.out_time <= begin_t)
+                if(courier.out_time <= base_time)
                 {
-                    string msg = "6parcel_" + courier.parcel + 
-                        " email_" + email_map[index] +
-                        " time_" + to_string(courier.out_time) +
-                        " station_" + to_string(index); 
-                    int fd = get_socket_fd();
-                    if(fd < 0)
+                    auto parcels = split(courier.parcel, "-");
+                    for(auto parcel : parcels)
                     {
-                        log() << "套接字创建失败" << endl;
-                        sleep(5);
-                        continue;
+                        if(parcel.size() == PARCEL_ID_LENGTH)
+                        {
+                            string msg = "6parcel_" + parcel + 
+                                " email_" + email_map[index] +
+                                " time_" + to_string(courier.out_time) +
+                                " station_" + to_string(index) +
+				" time_" + to_string(courier.out_time); 
+                            int fd = get_socket_fd();
+                            if(fd < 0)
+                            {
+                                newlog(base_time) << "套接字创建失败" << endl;
+                                sleep(5);
+                                continue;
+                            }
+                            send_all_message(fd, msg);
+                            string response = recv_all_message(fd);
+                            if(response.find("\n") != string::npos)
+                            {
+                                response = response.substr(0, response.find("\n"));
+                            }
+                            close(fd);
+                            auto key_value = decodeRequese(response);
+                            if(key_value.find("parcel") != key_value.end() &&
+                                    key_value["parcel"].size() == PARCEL_ID_LENGTH)
+                            {
+                                newlog(base_time) << "包裹 " << parcel << " 到达 "
+                                    << courier.dst << endl;
+                                left_parcel--;
+                            }
+                            else
+                            {
+                                newlog(base_time) << "包裹 " << parcel << " 投递失败 " << endl;
+                            }
+                        }
                     }
-                    send_all_message(fd, msg);
-                    string response = recv_all_message(fd);
-                    close(fd);
-                    auto key_value = decodeRequese(response);
-                    if(key_value.find("parcel") != key_value.end() &&
-                            key_value["parcel"].size() == PARCEL_ID_LENGTH)
-                    {
-                        outs.erase(outs.begin() + j);
-                        j--;
-                        log() << "包裹 " << courier.parcel << " 到达 "
-                           << courier.dst << endl;
-                        left_parcel--;
-                    }
-                    else
-                    {
-                        log() << "包裹 " << courier.parcel << " 投递失败 " << endl;
-                    }
+                    outs.erase(outs.begin() + j);
+                    j--;
                 }
             }
             ite++;
         }
-        sleep(1);
     }
 }
 

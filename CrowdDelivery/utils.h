@@ -7,13 +7,15 @@
 #include<vector>
 #include<sys/time.h>
 
-#define SERVER_IP "192.168.1.186"
+#define SERVER_IP "119.29.32.99"
 #define SERVER_PORT 9999
-#define PARCEL_ID_LENGTH 6
+#define PARCEL_ID_LENGTH 3
 #define EMULATION
-#define EMULATION_SPEED 60
-#define EMUL_START_HOUR 7
-#define EMUL_END_HOUR 18
+#define EMULATION_SPEED 10
+#define EMUL_START_HOUR 9
+#define EMUL_END_HOUR 14
+#define TOTAL_PARCEL_NUMBER 30 
+
 enum MESSAGE_TYPE
 {
     MESSAGE_REGISTER = '1',
@@ -51,6 +53,12 @@ public:
         Medium = 2,
         Fast = 3,
     };
+    enum ParcelRouteType
+    {
+        Data = 0,
+        Cost = 1,
+        Best = 2,
+    };
     Parcel();
     std::string generateID();
 
@@ -64,6 +72,7 @@ public:
     time_t start_time;
     time_t end_time;
     ParcelServerType srv_type;
+    ParcelRouteType route_type;
 };
 
 class Point;
@@ -75,6 +84,7 @@ extern std::map<std::string, std::set<Parcel*> > parcelInStation;
 extern std::map<std::string, int> stationStrToInt;
 extern std::map<int, std::string> stationIntToStr;
 
+void handle_message_in(int fd, std::string);
 void handle_message_in(int fd);
 void handle_register(int, std::map<std::string, std::string>&);
 void handle_get_route_parcel(int, std::map<std::string, std::string>&);
@@ -84,6 +94,7 @@ void handle_accept_parcel(int, std::map<std::string, std::string>&);
 void handle_deliver_parcel(int, std::map<std::string, std::string>&);
 void handle_change_route(int, std::map<std::string, std::string>&);
 
+void get_parcel_count(std::string, std::string, std::string&, int&, time_t);
 void get_parcel_count(std::string, std::string, std::string&, int&);
 void add_parcel(Parcel *, int);
 void read_users(std::string);
@@ -94,5 +105,7 @@ int init_matlab();
 void exit_matlab();
 template<class T>
 std::string toString(T t);
+
+void generate_parcels(int, int, int, int);
 
 #endif

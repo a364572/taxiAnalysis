@@ -8,6 +8,7 @@ std::ostream& log();
 
 std::string recv_all_message(int fd);
 void send_all_message(int fd, std::string&);
+void send_all_message(int fd, std::string, int);
 
 void read_station(std::string);
 std::map<std::string, std::string> decodeRequese(std::string);

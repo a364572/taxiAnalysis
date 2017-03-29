@@ -15,7 +15,7 @@
 #include<stdlib.h>
 #include<fstream>
 #include<sstream>
-#include"Point.h"
+#include<algorithm>
 #include"commom.h"
 #include"engine.h"
 using namespace std;
@@ -37,12 +37,14 @@ string toString(T t)
 }
 string Parcel::generateID()
 {
+    //static int start_id = 100000;
     string id = "";
     for(int i = 0; i < PARCEL_ID_LENGTH; i++)
     {
         int index = random() % 9; 
         id.push_back('0' + index + 1);
     }
+    //id = to_string(start_id++);
     return id;
 }
 Parcel::Parcel()
@@ -53,23 +55,15 @@ Parcel::Parcel()
     end_time = 0;
     id = generateID();
     srv_type = Medium;
+    route_type = Cost;
     while(parcelMap.find(id) != parcelMap.end())
     {
         id = generateID();
     }
 }
 
-void handle_message_in(int fd)
+void handle_message_type(int fd, int message_type, map<string, string>& keyValue)
 {
-    int message_type = 0;
-    if(fd < 0 || recv(fd, &message_type, 1, 0 ) != 1)
-    {
-        log() << "读取消息出错" << endl;
-        return;
-    }
-
-    string msg = recv_all_message(fd);
-    map<string, string> keyValue = decodeRequese(msg);
     switch(message_type)
     {
     case MESSAGE_REGISTER:
@@ -105,6 +99,31 @@ void handle_message_in(int fd)
         break;
     }
 }
+void handle_message_in(int fd, string msg)
+{
+    if(msg.size() <= 1)
+    {
+        log() << "读取消息出错" << endl;
+        return;
+    }
+    int message_type = msg[0];
+    msg = msg.substr(1);
+    map<string, string> keyValue = decodeRequese(msg);
+    handle_message_type(fd, message_type, keyValue);
+}
+void handle_message_in(int fd)
+{
+    int message_type = 0;
+    if(fd < 0 || recv(fd, &message_type, 1, 0 ) != 1)
+    {
+        log() << "读取消息出错" << endl;
+        return;
+    }
+
+    string msg = recv_all_message(fd);
+    map<string, string> keyValue = decodeRequese(msg);
+    handle_message_type(fd, message_type, keyValue);
+}
 
 //用户注册 工作人员和乘客
 void handle_register(int fd, map<string, string>& keyValue)
@@ -118,7 +137,7 @@ void handle_register(int fd, map<string, string>& keyValue)
     {
         log() << "不完整的注册信息" << endl;
         string msg = "0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     }
     User* user = new User();
@@ -134,7 +153,7 @@ void handle_register(int fd, map<string, string>& keyValue)
     {
         userMap[user->email] = user;
         string response = "email_" + user->email + " name_" + user->name;
-        send_all_message(fd, response);
+        send_all_message(fd, response, 0);
 
         log() << " 用户注册成功" << "\r\n\t姓名:" << user->name <<
             "\r\n\t性别:" << user->gender << "\r\n\t邮箱:" << user->email <<
@@ -143,9 +162,9 @@ void handle_register(int fd, map<string, string>& keyValue)
     }
     else
     {
-        string response = "exist_1";
-        send_all_message(fd, response);
         log() << " 用户注册失败 邮箱已经存在 " << user->email << endl;
+        string response = "exist_1";
+        send_all_message(fd, response, 0);
         delete user;
     }
 }
@@ -159,7 +178,7 @@ void handle_get_route_parcel(int fd, map<string, string>& keyValue)
     if(keyValue.find("src") == keyValue.end() || keyValue.find("dst") == keyValue.end())
     {
         string msg = "cnt_0 parcel_1";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return; 
     }
     int srcIndex = atoi(keyValue["src"].data());
@@ -171,7 +190,7 @@ void handle_get_route_parcel(int fd, map<string, string>& keyValue)
     string response = "cnt_" + toString(cnt);
     response += " parcel_" + parcel;
     log() << "路径 " << src << " 到 " << dst << " 当前有 " << cnt << " 个包裹 " << parcel << endl;
-    send_all_message(fd, response);
+    send_all_message(fd, response, 0);
 }
 
 //获取用户正在派送的包裹
@@ -181,7 +200,7 @@ void handle_get_deliver_parcel(int fd, map<string, string>& keyValue)
     {
         log() << "没有用户邮箱" << endl;
         string msg = "parcel_0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     } 
     string email = keyValue["email"];
@@ -195,7 +214,7 @@ void handle_get_deliver_parcel(int fd, map<string, string>& keyValue)
     }
     log() << " 用户 " << email << " 正在派送包裹" << parcelID << endl;
     parcelID = "parcel_" + parcelID + od;
-    send_all_message(fd, parcelID);
+    send_all_message(fd, parcelID, 0);
 }
 
 //获取用户的信息 工作人员和乘客
@@ -205,7 +224,7 @@ void handle_get_user_information(int fd, map<string, string>& keyValue)
 
     if(keyValue.find("email") == keyValue.end())
     {
-        send_all_message(fd, response);
+        send_all_message(fd, response, 0);
         return;
     }
     string email = keyValue["email"];
@@ -227,7 +246,7 @@ void handle_get_user_information(int fd, map<string, string>& keyValue)
         log() << "获取用户 " << email << " 信息成功 "
             << response <<  endl;
     }
-    send_all_message(fd, response);
+    send_all_message(fd, response, 0);
 }
 
 //用户选择接收包裹 工作人员和乘客
@@ -239,7 +258,7 @@ void handle_accept_parcel(int fd, map<string, string>& keyValue)
     {
         log() << "请求信息不全" << endl;
         string msg = "0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     }
     //首先查询是否有符合当前线路的包裹
@@ -250,51 +269,44 @@ void handle_accept_parcel(int fd, map<string, string>& keyValue)
     string src = stationIntToStr[srcIndex];
     string dst = stationIntToStr[dstIndex];
     string email = keyValue["email"];
-    get_parcel_count(src, dst, parcel, cnt);
-    if(parcel.size() == PARCEL_ID_LENGTH)
-    {
-        time_t t = get_time();
-        parcelMap[parcel]->times.push_back(t);
-        parcelMap[parcel]->stations.push_back(src);
-        parcelMap[parcel]->isCarried = true;
-        log() << "包裹 " << parcel << " 即将送往 " << dst << " 实际目的地 " << parcelMap[parcel]->dst << endl;
-    }
-    else
-    {
-        log() << "当前没有合适的包裹" << endl;
-    }
+    //time_t current_t = stol(keyValue["time"]);
+    time_t current_t = get_time();
+    get_parcel_count(src, dst, parcel, cnt, current_t);
+    auto parcels = split(parcel, "-");
+    //for(auto p: parcels)
+    //{
+    //    if(p.size() == PARCEL_ID_LENGTH && !parcelMap[p]->isCarried
+    //        && !parcelMap[p]->isDelivered)
+    //    {
+    //        time_t t = get_time();
+    //        if(keyValue.find("time") != keyValue.end())
+    //        {
+    //    	t = (current_t);
+    //        }
+    //        parcelMap[p]->times.push_back(t);
+    //        parcelMap[p]->stations.push_back(src);
+    //        parcelMap[p]->isCarried = true;
+    //        log() << "包裹 " << p << " 即将从 " << src << " 送往 " << dst << " 实际目的地 " << parcelMap[p]->dst << endl;
+    //    }
+    //    else
+    //    {
+    //        log() << "当前没有合适的包裹" << endl;
+    //    }
+    //}
     //工作人员的话可以直接返回
-    if(parcel.size() > 0)
-    {
-        string msg = "parcel_" + parcel;
-        send_all_message(fd, msg);
-        return;
-    }
+    //if(parcel.size() > 0)
+    //{
+    //    string msg = "parcel_" + parcel;
+    //    send_all_message(fd, msg, 0);
+    //    return;
+    //}
 
     if(userMap.find(email) == userMap.end())
     {
         log() << "没有该用户" << email << endl;
         string msg = "0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
-    }
-    parcel = userMap[email]->current_parcel_id;
-    if(parcel.size() < PARCEL_ID_LENGTH) 
-    {
-        map<string, set<Parcel*> >::iterator ite = parcelInStation.find(src);
-        if(ite != parcelInStation.end())
-        {
-            set<Parcel *>::iterator parcelIte = ite->second.begin();
-            while(parcelIte != ite->second.end())
-            {
-                if((*parcelIte)->dst == dst && !(*parcelIte)->isDelivered && !(*parcelIte)->isCarried)
-                {
-                    parcel = (*parcelIte)->id;
-                    break;
-                }
-                parcelIte++;
-            }
-        }
     }
 
     if(parcel.size() == PARCEL_ID_LENGTH)
@@ -310,7 +322,7 @@ void handle_accept_parcel(int fd, map<string, string>& keyValue)
     {
         parcel = "parcel_1";
     }
-    send_all_message(fd, parcel);
+    send_all_message(fd, parcel, 0);
 }
 
 
@@ -324,7 +336,7 @@ void handle_deliver_parcel(int fd, map<string, string>& keyValue)
     {
         log() << "请求信息不全" << endl;
         string msg = "parcel_0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     }
 
@@ -336,29 +348,42 @@ void handle_deliver_parcel(int fd, map<string, string>& keyValue)
     if(station.size() > 0)
     {
         time_t t = get_time();
+	if(keyValue.find("time") != keyValue.end())
+	{
+		t = stol(keyValue["time"]);
+	}
         if(parcelMap.find(parcelID) != parcelMap.end() && 
                 parcelMap[parcelID]->stations.size() > 0)
         {
             auto parcel = parcelMap[parcelID];
             //改变包裹所属车站
-            string pre_station = parcel->stations.back();
-            parcelInStation[pre_station].erase(parcelInStation[pre_station].find(parcel));
-            if(parcelInStation.find(station) == parcelInStation.end())
+            if(find(parcel->stations.begin(), parcel->stations.end(), station) != parcel->stations.end() ||
+                    parcel->isDelivered)
             {
-                parcelInStation[station] = set<Parcel*>();
-            }
-            parcelInStation[station].insert(parcel);
-            parcel->times.push_back(t);
-            parcel->stations.push_back(station);
-            parcel->isCarried = false;
-            if(parcel->dst == station)
-            {
-                parcel->isDelivered = true;
-                log() << "包裹 " <<parcelID << " 成功投递至目的地" << endl;
+                log() << "包裹 " << parcelID << " 投递失败 重复投递" << endl;
+                parcelID = "0";
             }
             else
             {
-                log() << "包裹 " <<parcelID << " 投递至中转车站 " << station << endl;
+                string pre_station = parcel->stations.back();
+                parcelInStation[pre_station].erase(parcelInStation[pre_station].find(parcel));
+                if(parcelInStation.find(station) == parcelInStation.end())
+                {
+                    parcelInStation[station] = set<Parcel*>();
+                }
+                parcelInStation[station].insert(parcel);
+                parcel->times.push_back(t);
+                parcel->stations.push_back(station);
+                parcel->isCarried = false;
+                if(parcel->dst == station)
+                {
+                    parcel->isDelivered = true;
+                    log() << "包裹 " <<parcelID << " 成功投递至目的地" << endl;
+                }
+                else
+                {
+                    log() << "包裹 " <<parcelID << " 投递至中转车站 " << station << endl;
+                }
             }
         }
         else
@@ -367,7 +392,7 @@ void handle_deliver_parcel(int fd, map<string, string>& keyValue)
             parcelID = "0";
         }
         string msg = "parcel_" + parcelID;
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     }
 
@@ -377,7 +402,7 @@ void handle_deliver_parcel(int fd, map<string, string>& keyValue)
     {
         log() << "时间格式错误" << time << endl;
         string msg = "parcel_0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     }
 
@@ -385,14 +410,14 @@ void handle_deliver_parcel(int fd, map<string, string>& keyValue)
     {
         log() << "没有该用户" << userEmail << endl;
         string msg = "0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     }
     if(parcelMap.find(parcelID) == parcelMap.end())
     {
         log() << "没有该包裹" << parcelID <<  endl;
         string msg = "0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     }
 
@@ -404,7 +429,7 @@ void handle_deliver_parcel(int fd, map<string, string>& keyValue)
     log() << "包裹 " << parcelID << " 由用户 " << userEmail 
         << " 送达目的地 时间 " << time << endl;
     string response = "parcel_" + parcelID;
-    send_all_message(fd, response);
+    send_all_message(fd, response, 0);
 }
 
 //乘客改变日常出行路径
@@ -416,7 +441,7 @@ void handle_change_route(int fd, map<string, string>& keyValue)
     {
         log() << "请求信息不全" << endl;
         string msg = "0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     }
     string email = keyValue["email"];
@@ -424,7 +449,7 @@ void handle_change_route(int fd, map<string, string>& keyValue)
     {
         log() << "没有该用户" << email << endl;
         string msg = "0";
-        send_all_message(fd, msg);
+        send_all_message(fd, msg, 0);
         return;
     }
     int cnt = 0;
@@ -439,7 +464,7 @@ void handle_change_route(int fd, map<string, string>& keyValue)
     memset(tmp, 0, sizeof(tmp));
     sprintf(tmp, "cnt_%d src_%s dst_%s", cnt, src.data(), dst.data());
     string msg = tmp;
-    send_all_message(fd, msg);
+    send_all_message(fd, msg, 0);
 }
 
 //flag表示是否已经包含时间 为1表示parcel已经构造好了时间
@@ -452,6 +477,13 @@ void add_parcel(Parcel *parcel, int flag)
         delete parcel;
         return;
     }
+    if(parcelMap.find(parcel->id) != parcelMap.end())
+    {
+	log() << "包裹" << parcel->id << "已经存在" << endl;
+	delete parcel;
+	return;
+    }
+
     parcelMap[parcel->id] = parcel;
     if(parcelInStation.find(parcel->src) == parcelInStation.end())
     {
@@ -487,24 +519,47 @@ void read_parcels(string file)
             parcel->id = vec[0];
             parcel->src = vec[1];
             parcel->dst = vec[2];
-            if(vec[3] == "1") 
+            if(vec[3] == "3")
+            {
+                parcel->srv_type = Parcel::ParcelServerType::Fast;
+            }
+            else if(vec[3] == "2")
+            {
+                parcel->srv_type = Parcel::ParcelServerType::Medium;
+            }
+            else
+            {
+                parcel->srv_type = Parcel::ParcelServerType::Slow;
+            }
+            if(vec[4] == "2")
+            {
+                parcel->route_type = Parcel::ParcelRouteType::Best;
+            }
+            else if(vec[4] == "1")
+            {
+                parcel->route_type = Parcel::ParcelRouteType::Cost;
+            }
+            else
+            {
+                parcel->route_type = Parcel::ParcelRouteType::Data;
+            }
+
+            if(vec[5] == "1") 
             {
                 parcel->isCarried = true;
             }
-            if(vec[4] == "1") 
+            if(vec[6] == "1") 
             {
                 parcel->isDelivered = true;
             }
-            auto times = split(vec[5], "_");
+            auto times = split(vec[7], "_");
+            struct tm tm;
             for(auto t : times)
             {
-                long time;
-                stringstream ss;
-                ss << t;
-                ss >> time;
-                parcel->times.push_back((time_t)time);
+                strptime(t.data(), "%Y-%m-%d|%H:%M:%S", &tm);
+                parcel->times.push_back(mktime(&tm));
             }
-            auto stations = split(vec[6], "_");
+            auto stations = split(vec[8], "_");
             for(auto s : stations)
             {
                 parcel->stations.push_back(s);
@@ -577,6 +632,8 @@ void write_users(string file)
     }
     out.close();
 }
+
+//包裹输出格式 ID,起点，目的点，服务类型，路由方法类型，是否被携带，是否送达，各个时间点，各个车站
 void write_parcels(string file)
 {
     string file_append = file + "_delivered";
@@ -597,7 +654,8 @@ void write_parcels(string file)
     while(ite != parcelMap.end())
     {
         Parcel* parcel = ite->second;
-        string line = parcel->id + " " + parcel->src + " " + parcel->dst;
+        string line = parcel->id + " " + parcel->src + " " + parcel->dst + " " + 
+            to_string(parcel->srv_type) + " " + to_string(parcel->route_type);
         if(parcel->isCarried)
         {
             line += " 1";
@@ -614,15 +672,20 @@ void write_parcels(string file)
         {
             line += " 0 ";
         }
+        char tmp[64];
         for(vector<time_t>::size_type i = 0; i < parcel->times.size(); i++)
         {
+	    memset(tmp, 0, sizeof(tmp));
+	    struct tm* tm = localtime(&(parcel->times.at(i)));
+	    strftime(tmp, sizeof(tmp), "%Y-%m-%d|%H:%M:%S", tm);
+	    line += tmp;
             if(i == parcel->times.size() - 1)
             {
-                line += toString(parcel->times.at(i)) + " ";
+                line += " ";
             }
             else
             {
-                line += toString(parcel->times.at(i)) + "_";
+                line += "_";
             }
         }
         for(vector<string>::size_type i = 0; i < parcel->stations.size(); i++)
@@ -649,10 +712,10 @@ void write_parcels(string file)
     out_append.close();
 }
 
-//判断包裹是否要交给乘客，0:跳过，1:用我们的方法，2:Cost-oriented方法，3:time-oriented方法
+//判断包裹是否要交给乘客，method : 0:用我们的方法，1:Cost-oriented方法，2:best-oriented方法
 static int is_worth_delivering(int sid_i, int did_i, int place_hour_i, int place_min_i,
         int place_sec_i, int srv_type_i, int cour_did_i, int cour_hour_i, int cour_min_i,
-        int cour_sec_i)
+        int cour_sec_i, int method_i)
 {
     if(!ep)
     {
@@ -678,8 +741,9 @@ static int is_worth_delivering(int sid_i, int did_i, int place_hour_i, int place
     static mxArray *cour_hour = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
     static mxArray *cour_min = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
     static mxArray *cour_sec = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
+    static mxArray *method = mxCreateNumericMatrix(1, 1, mxINT32_CLASS, mxREAL);
     if(!sid || !did || !place_hour|| !place_min || !place_sec || !srv_type ||
-            !cour_did || ! cour_hour || !cour_min || !cour_sec)
+            !cour_did || ! cour_hour || !cour_min || !cour_sec || !method)
     {
         log() << "指针初始化失败" << endl;
         return 0;
@@ -694,6 +758,7 @@ static int is_worth_delivering(int sid_i, int did_i, int place_hour_i, int place
     memcpy(mxGetPr(cour_hour), &cour_hour_i, sizeof(int));
     memcpy(mxGetPr(cour_min), &cour_min_i, sizeof(int));
     memcpy(mxGetPr(cour_sec), &cour_sec_i, sizeof(int));
+    memcpy(mxGetPr(method), &method_i, sizeof(int));
     engPutVariable(ep, "sid", sid);  
     engPutVariable(ep, "did", did);  
     engPutVariable(ep, "place_hour", place_hour);  
@@ -704,10 +769,11 @@ static int is_worth_delivering(int sid_i, int did_i, int place_hour_i, int place
     engPutVariable(ep, "cour_hour", cour_hour);  
     engPutVariable(ep, "cour_min", cour_min);  
     engPutVariable(ep, "cour_sec", cour_sec);  
+    engPutVariable(ep, "method", method);  
     //log() << sid_i << " " << did_i << " " << place_hour_i << " " << place_min_i << " " << place_sec_i << " " << srv_type_i << " " <<
     //    cour_did_i << " " << cour_hour_i << " " << cour_min_i << " " << cour_sec_i << endl;
         
-    engEvalString(ep, "result=subway(sid, did, place_hour, place_min, place_sec, srv_type, cour_did, cour_hour, cour_min, cour_sec);");
+    engEvalString(ep, "result=subway(sid, did, place_hour, place_min, place_sec, srv_type, cour_did, cour_hour, cour_min, cour_sec, method);");
 
     int res = 0;
     mxArray *result = engGetVariable(ep, "result");
@@ -719,18 +785,26 @@ static int is_worth_delivering(int sid_i, int did_i, int place_hour_i, int place
     return res;
 }
 
-//得到某个线路的包裹个数和第一个合适的包裹 参数是乘客的起点和目的地
-void get_parcel_count(string src, string dst, string& id, int& cnt)
+static void swap(vector<Parcel *>&vec, int i, int j)
+{
+    auto parcel = vec[i];
+    vec[i] = vec[j];
+    vec[j] = parcel;
+}
+//得到某个线路的包裹个数所有合适的包裹 参数是乘客的起点和目的地
+void get_parcel_count(string src, string dst, string& id, int&cnt)
+{
+	get_parcel_count(src, dst, id, cnt, get_time());
+}
+void get_parcel_count(string src, string dst, string& id, int& cnt, time_t now)
 {
     cnt = 0;
     id = "1";
     if(parcelInStation.find(src) == parcelInStation.end())
     {
         parcelInStation[src] = set<Parcel *>();
-        return;
     }
     //获取当前时间
-    time_t now = get_time();
     struct tm current;
     struct tm *tm = localtime(&now);
     memcpy(&current, tm, sizeof(current));
@@ -739,51 +813,123 @@ void get_parcel_count(string src, string dst, string& id, int& cnt)
     int cour_min = current.tm_min;
     int cour_sec = current.tm_sec;
 
-    auto ite = parcelInStation[src].begin();
-    while(ite != parcelInStation[src].end())
+    //获取当前车站的包裹并排序
+    vector<Parcel*> all_parcels;
+    for(auto parcel : parcelInStation[src])
     {
-        auto parcel = *ite;
         time_t arrive = parcel->times.back();
         //包裹没到达目的地，没被派送，到达时间早于当前时间
-        if(!parcel->isDelivered && !parcel->isCarried && now >= arrive)
+        if(parcel->isCarried || parcel->isDelivered || arrive > now
+	    || find(parcel->stations.begin(), parcel->stations.end(), dst) != parcel->stations.end())
         {
-            //包裹的起始时间是最开始的时间还是到达某个站点的时间?
-            tm = localtime(&arrive);
-            int sid = stationStrToInt[src];
-            int did = stationStrToInt[parcel->dst];
-            int place_hour = tm->tm_hour;
-            int place_min = tm->tm_min;
-            int place_sec = tm->tm_sec;
-
-            int res = is_worth_delivering(sid, did, place_hour, place_min, place_sec, 
-                    parcel->srv_type, cour_did, cour_hour, cour_min, cour_sec); 
-            if(res > 0)
+            continue;
+        }
+        all_parcels.push_back(parcel);
+    }
+    for(auto parcel : all_parcels)
+    {
+	if(parcel->isCarried)
+	{
+	    log() << "error " << parcel->id<< endl;
+	}
+    }
+    //将包裹按照不同的路由方法排序 方法一样的按照优先级排序 最后按照时间
+    for(decltype(all_parcels.size()) i = 0; i < all_parcels.size(); i++)
+    {
+        for(decltype(i) j = 1; j < all_parcels.size() - i; j++)
+        {
+            auto first = all_parcels[j - 1];
+            auto second = all_parcels[j];
+            if(first->route_type < second->route_type)
             {
-                //不同日期选择不同的路由方法
-                if(current.tm_mday % 3 == 0 && res % 2 == 1)
+                swap(all_parcels, j - 1, j);
+            }
+            else if(first->route_type == second->route_type)
+            {
+                if(first->srv_type < second->srv_type)
                 {
-                    log() << "data-oriented 的方法成功" << endl;
-                    cnt++;
+                    swap(all_parcels, j - 1, j);
                 }
-                if(current.tm_mday % 3 == 1 && (res / 10) % 2 == 1)
+                else if(first->srv_type == second->srv_type)
                 {
-                    log() << "cost-oriented 的方法成功" << endl;
-                    cnt++;
-                }
-                if(current.tm_mday % 3 == 2 && (res / 100) % 2 == 1)
-                {
-                    log() << "time-oriented 的方法成功" << endl;
-                    cnt++;
-                }
-                if(cnt == 1)
-                {
-                    id = parcel->id;
-                    break;
+		    int f_sec = first->times.back();
+		    int s_sec = second->times.back();
+                    if(f_sec > s_sec)
+                    {
+                        swap(all_parcels, j - 1, j);
+                    }
                 }
             }
         }
-        ite++;
     }
+    int flag = 0;
+    int p_method = -1;
+    int p_srv = -1;
+    int p_hour = -1;
+    vector<Parcel*> cans;
+    for(auto parcel : all_parcels)
+    {
+        time_t arrive = parcel->times.back();
+        tm = localtime(&arrive);
+        int sid = stationStrToInt[src];
+        int did = stationStrToInt[parcel->dst];
+        int place_hour = tm->tm_hour;
+        int place_min = tm->tm_min;
+        int place_sec = tm->tm_sec;
+
+        //每天一种方法
+        int method = parcel->route_type;
+	int srv = parcel->srv_type;
+        int carry = 1 << method;
+        if(flag & carry)
+        {
+            continue;
+        }
+	if(p_method == method && p_hour == place_hour 
+	    && p_srv == srv)
+	{
+	    continue;
+	}
+
+        int res = is_worth_delivering(sid, did, place_hour, place_min, place_sec, 
+                srv, cour_did, cour_hour, cour_min, cour_sec, method); 
+        if(res > 0)
+        {
+            flag |= carry;
+            cans.push_back(parcel);
+        }
+	p_method = method;
+	p_hour = place_hour;
+	p_srv == srv;
+    }
+    cnt = cans.size();
+    if(cnt == 0)
+    {
+        return;
+    }
+    id = "";
+    string out;
+    for(auto parcel : cans)
+    {
+        id += parcel->id;
+        if(parcel != cans.back())
+        {
+            id += "-";
+        }
+        if(parcel->route_type == 0)
+        {
+            out += "data-oriented ";
+        }
+        if(parcel->route_type == 1)
+        {
+            out += "cost-oriented ";
+        }
+        if(parcel->route_type == 2)
+        {
+            out += "best-oriented ";
+        }
+    }
+    log() << out << "的方法成功" << endl;
 }
 //初始化matlab引擎
 int init_matlab()
@@ -797,11 +943,95 @@ int init_matlab()
         log() << "Can't start MATLAB engine!"<<endl;   
         return -1;   
     }
-    engEvalString(ep, "cd ~/workplace/matlab/mfile;");
-    engEvalString(ep, "addpath('~/workplace/matlab/mfile');");
+        log() << "start MATLAB engine!"<<endl;   
+    engEvalString(ep, "cd ~/workplace/matlab/mfile/github/Crowd-Delivery;");
+    engEvalString(ep, "addpath('~/workplace/matlab/mfile/github/Crowd-Delivery');");
     return 0;
 }
 void exit_matlab()
 {
     engClose(ep);
+}
+
+//随机产生包裹，总个数 开始小时 结束小时 左闭右开 line:1/2
+void generate_parcels(int num, int beginHour, int endHour, int line)
+{
+    int total = 0;
+    int interval = (endHour - beginHour) * 60 / num;
+    int avg = num / 3;
+
+    //总共两条线路 
+    //  会展中心6->大剧院7->市民中心11
+    //  老街8->少年宫13->布吉14->深圳北站15
+    //获取当天日期
+    time_t now = get_time();
+    struct tm timeBegin;
+    struct tm* tm = localtime(&now);
+    memcpy(&timeBegin, tm, sizeof(timeBegin));
+    timeBegin.tm_sec = timeBegin.tm_min = tm->tm_hour = 0;
+
+    for(int cnt = 0; cnt < num; cnt++)
+    {
+	    vector<int> srcSet = {6, 7};
+	    int srcIndex = 6;
+	    srcIndex = random() % srcSet.size();
+	    srcIndex = srcSet[srcIndex];
+	    int dstIndex = 11;
+	    if(line == 2)
+	    {
+		    srcSet = {8, 13, 14};
+		    srcIndex = 8;
+		    srcIndex = random() % srcSet.size();
+		    srcIndex = srcSet[srcIndex];
+		    srcIndex = 8;
+		    dstIndex = 14;
+	    }
+        //先产生最慢的 然后中等的 最后最快的
+        Parcel::ParcelServerType srv_type;
+        if(cnt < avg)
+        {
+            srv_type = Parcel::ParcelServerType::Slow;
+        }
+        else if(cnt < avg * 2)
+        {
+            srv_type = Parcel::ParcelServerType::Medium;
+        }
+        else
+        {
+            srv_type = Parcel::ParcelServerType::Fast;
+        }
+        int nextMinute = cnt * interval;
+        timeBegin.tm_hour = beginHour + nextMinute / 60;
+        timeBegin.tm_min = nextMinute % 60;
+        now = mktime(&timeBegin);
+        //每个包裹产生3个 并用不同的方法传递
+        for(int i = 1; i < 2; i++)
+        {
+            total++;
+            Parcel *parcel = new Parcel();
+            parcel->src = stationIntToStr[srcIndex];
+            parcel->dst = stationIntToStr[dstIndex];
+            parcel->srv_type = srv_type;
+
+            if(i == 0)
+            {
+                parcel->route_type = Parcel::ParcelRouteType::Data;
+            }
+            else if(i == 1)
+            {
+                parcel->route_type = Parcel::ParcelRouteType::Cost;
+            }
+            else
+            {
+                parcel->route_type = Parcel::ParcelRouteType::Best;
+            }
+            //设置包裹的起始时间 起始站点
+            parcel->start_time = now;
+            parcel->times.push_back(now);
+            parcel->stations.push_back(parcel->src);
+            add_parcel(parcel, 1);
+        }
+    }
+    log() << "共产生了 " << total << " 个包裹" << endl;
+    log() << "Slow: " << avg * 3 << " Medium: " << avg * 3 << " Fast: " << total - 6 * avg << endl; 
 }

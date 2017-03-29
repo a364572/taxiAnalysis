@@ -15,9 +15,6 @@
 #include "utils.h"
 #include "commom.h"
 
-#define MAX_EPOLL_EVENT_COUNT 10
-#define TOTAL_PARCEL_NUMBER 20
-
 using namespace std;
 
 bool isRunning = true;
@@ -28,49 +25,6 @@ void handle_signal(int)
     log() << "准备退出程序" << endl;
     isRunning = false;
     exit_matlab();
-}
-//随机产生包裹，总个数 开始小时 结束小时 左闭右开
-void generate_parcels(int num, int beginHour, int endHour)
-{
-    int cnt = 0;
-    int interval = (endHour - beginHour) * 60 / num;
-
-    //总共两条线路 
-    //  会展中心6->大剧院7->市民中心11
-    //  老街8->少年宫13->深圳北站15->布吉14
-    //获取当天日期
-    time_t now = get_time();
-    struct tm timeBegin;
-    struct tm* tm = localtime(&now);
-    memcpy(&timeBegin, tm, sizeof(timeBegin));
-    timeBegin.tm_sec = timeBegin.tm_min = tm->tm_hour = 0;
-
-    for(int i = 0; i < 2; i++)
-    {
-        int srcIndex = 6;
-        int dstIndex = 11;
-        if(i == 1)
-        {
-            srcIndex = 8;
-            dstIndex = 14;
-        }
-        for(cnt = 0; cnt < num; cnt++)
-        {
-            Parcel *parcel = new Parcel();
-            parcel->src = stationIntToStr[srcIndex];
-            parcel->dst = stationIntToStr[dstIndex];
-            int nextMinute = cnt * interval;
-            timeBegin.tm_hour = beginHour + nextMinute / 60;
-            timeBegin.tm_min = nextMinute % 60;
-            now = mktime(&timeBegin);
-            //设置包裹的起始时间 起始站点
-            parcel->start_time = now;
-            parcel->times.push_back(now);
-            parcel->stations.push_back(parcel->src);
-            add_parcel(parcel, 1);
-        }
-    }
-    log() << "共产生了 " << cnt << " 个包裹" << endl;
 }
 void* handle_input(void *)
 {
@@ -106,7 +60,7 @@ void* handle_input(void *)
                         line.append("\t包裹终点: " + parcel->dst + "\n");
                         line.append("\t包裹投递中: " + string(parcel->isCarried ? "是" : "否") + "\n");
                         line.append("\t包裹当前站点: " + parcel->stations.back() + "\n");
-                        line.append("\t包裹起始时间: " + toString(parcel->times[0]));
+                        line.append("\t包裹起始时间: " + to_string(parcel->times[0]));
                         cout << line << endl;
                         ite++;
                     }
@@ -135,6 +89,7 @@ void* handle_input(void *)
 
 int main(int argc, char** args)
 {
+    log();
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if(sock < 0)
     {
@@ -147,7 +102,7 @@ int main(int argc, char** args)
     struct sockaddr_in addr;
     memset((char *)&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+    addr.sin_addr.s_addr = inet_addr("0.0.0.0");
     addr.sin_port = htons(SERVER_PORT);
 
     if(bind(sock, (struct sockaddr*)&addr, sizeof(struct sockaddr)) != 0)
@@ -160,14 +115,29 @@ int main(int argc, char** args)
     listen(sock, 5);
     srand(time(NULL));
     read_station("station.txt");
-    read_parcels("parcels");
     read_users("users");
+
+    //提前产生包裹
+    if(argc == 2)
+    {
+        //线路1和线路2
+        int val = atoi(args[1]);
+        if(val == 1 || val == 2)
+        {
+            generate_parcels(1, EMUL_START_HOUR, EMUL_END_HOUR, val);
+        }
+    }
+    string parcel_file = "parcels";
+    read_parcels(parcel_file);
+    //启动matlab引擎
+    init_matlab();
 
     struct sigaction action;
     memset((char *)&action, 0, sizeof(action));
     action.sa_handler = handle_signal;
     action.sa_flags = SA_NOMASK;
     sigaction(SIGINT, &action, NULL);
+    sigaction(SIGTERM, &action, NULL);
 
     pthread_t pth;
     pthread_create(&pth, NULL, handle_input, NULL);
@@ -175,14 +145,6 @@ int main(int argc, char** args)
     struct sockaddr_in client;
     socklen_t sock_length;
     sock_length = sizeof(struct sockaddr);
-
-    //提前产生包裹
-    if(argc == 2)
-    {
-        generate_parcels(TOTAL_PARCEL_NUMBER, EMUL_START_HOUR, EMUL_END_HOUR);
-    }
-    //启动matlab引擎
-    init_matlab();
 
     while(isRunning) 
     {

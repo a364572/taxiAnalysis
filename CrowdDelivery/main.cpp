@@ -15,8 +15,6 @@
 #include "utils.h"
 #include "commom.h"
 
-#define MAX_EPOLL_EVENT_COUNT 10
-
 using namespace std;
 
 bool isRunning = true;
@@ -28,44 +26,7 @@ void handle_signal(int)
     isRunning = false;
     exit_matlab();
 }
-//随机产生包裹，总个数 开始小时 结束小时 左闭右开
-void generate_parcels(int num, int beginHour, int endHour)
-{
-    int cnt = 0;
-    int totalStation = stationIntToStr.size();
-    int total_minutes = (endHour - beginHour) * 60;
-    //获取当天日期
-    time_t now = get_time();
-    struct tm timeBegin;
-    struct tm* tm = localtime(&now);
-    memcpy(&timeBegin, tm, sizeof(timeBegin));
-    timeBegin.tm_sec = timeBegin.tm_min = tm->tm_hour = 0;
-
-    while(cnt < num)
-    {
-
-        int nextSrc = random() % totalStation + 1;
-        int nextDst = nextSrc;
-        while(nextDst == nextSrc)
-        {
-            nextDst = random() % totalStation + 1;
-        }
-        Parcel *parcel = new Parcel();
-        parcel->src = stationIntToStr[nextSrc];
-        parcel->dst = stationIntToStr[nextDst];
-        int nextMinute = random() % total_minutes;
-        timeBegin.tm_hour = beginHour + nextMinute / 60;
-        timeBegin.tm_min = nextMinute % 60;
-        now = mktime(&timeBegin);
-        //设置包裹的起始时间 起始站点
-        parcel->start_time = now;
-        parcel->times.push_back(now);
-        parcel->stations.push_back(parcel->src);
-        add_parcel(parcel, 1);
-        cnt++;
-    }
-    log() << "共产生了 " << cnt << " 个包裹" << endl;
-}
+//随机产生包裹，总个数 开始小时 结束小时 左闭右开 line:1/2
 void* handle_input(void *)
 {
     string line;
@@ -100,7 +61,7 @@ void* handle_input(void *)
                         line.append("\t包裹终点: " + parcel->dst + "\n");
                         line.append("\t包裹投递中: " + string(parcel->isCarried ? "是" : "否") + "\n");
                         line.append("\t包裹当前站点: " + parcel->stations.back() + "\n");
-                        line.append("\t包裹起始时间: " + toString(parcel->times[0]));
+                        line.append("\t包裹起始时间: " + to_string(parcel->times[0]));
                         cout << line << endl;
                         ite++;
                     }
@@ -129,66 +90,79 @@ void* handle_input(void *)
 
 int main(int argc, char** args)
 {
+    //log();
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if(sock < 0)
     {
-        log() << "创建socket失败" << endl;
+        log() << "创建socket失败" <<  endl;
         return -1;
     }
-    int value = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &value, sizeof(value)); 
-
-    struct sockaddr_in addr;
-    memset((char *)&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr(SERVER_IP);
-    addr.sin_port = htons(SERVER_PORT);
-
-    if(bind(sock, (struct sockaddr*)&addr, sizeof(struct sockaddr)) != 0)
+    struct sockaddr_in server;
+    memset((char *)&server, 0, sizeof(server));
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = inet_addr("119.29.32.99");
+    server.sin_port = htons(9998);
+    //连接云服务器
+    if(connect(sock, (struct sockaddr*)&server, sizeof(struct sockaddr)) != 0)
     {
-        log() << "绑定套接字失败,请稍后再试" << endl;
+        log() << "连接tcloud失败" << endl;
+        close(sock);
         return -1;
     }
     log() << "服务器启动成功" << endl;
 
-    listen(sock, 5);
     srand(time(NULL));
     read_station("station.txt");
-    read_parcels("parcels");
     read_users("users");
+
+    //提前产生包裹
+    if(argc == 2)
+    {
+        int val = atoi(args[1]);
+        if(val == 1 || val == 2)
+        {
+            generate_parcels(TOTAL_PARCEL_NUMBER, EMUL_START_HOUR, EMUL_END_HOUR, val);
+        }
+        string parcel_file = "parcels";
+        read_parcels(parcel_file);
+    }
+    //启动matlab引擎
+    init_matlab();
 
     struct sigaction action;
     memset((char *)&action, 0, sizeof(action));
     action.sa_handler = handle_signal;
     action.sa_flags = SA_NOMASK;
     sigaction(SIGINT, &action, NULL);
+    sigaction(SIGTERM, &action, NULL);
 
-    pthread_t pth;
-    pthread_create(&pth, NULL, handle_input, NULL);
-    int new_sock;
-    struct sockaddr_in client;
-    socklen_t sock_length;
-    sock_length = sizeof(struct sockaddr);
-
-    //提前产生包裹
-    if(argc == 2)
-    {
-        generate_parcels(100, EMUL_START_HOUR, EMUL_END_HOUR);
-    }
-    //启动matlab引擎
-    init_matlab();
-
+    char tmp[1024];
+    string msg;
     while(isRunning) 
     {
-        new_sock = accept(sock, (struct sockaddr*)&client, &sock_length);
-        if(new_sock < 0)
+        memset(tmp, 0, sizeof(tmp));
+        int len = recv(sock, tmp, sizeof(tmp) - 1, 0);
+        if(len <= 0)
         {
-           break;
-        } 
-        handle_message_in(new_sock);
-        close(new_sock);
+            log() << "消息接收失败" << endl;
+            isRunning = false;
+        }
+        else
+        {
+            msg += tmp;
+            string::size_type pos = msg.find("\n");
+            while(pos != string::npos)
+            {
+                string str = msg.substr(0, pos);
+                handle_message_in(sock, str);
+                msg = msg.substr(pos + 1);
+                pos = msg.find("\n");
+            }
+        }
     }
+    close(sock);
     write_parcels("parcels");
     write_users("users");
+    exit_matlab();
 }
 

@@ -52,6 +52,11 @@ map<string, string> decodeRequese(string line)
     return result;
 }
 
+void send_all_message(int fd, string msg, int flag)
+{
+    msg += "\n";
+    send(fd, msg.data(), msg.size(), flag);
+}
 void send_all_message(int fd, string& msg)
 {
     //int len = msg.size();
@@ -63,7 +68,7 @@ void send_all_message(int fd, string& msg)
     //    sent += res;
     //}
     //发送完数据后发送终止符
-    int sent = send(fd, msg.data(), msg.size(), 0);
+    send(fd, msg.data(), msg.size(), 0);
     shutdown(fd, SHUT_WR);
     //log() << msg << " 写长度 " << sent << endl;
 }
@@ -93,6 +98,10 @@ string recv_all_message(int fd)
 //返回系统当前时间，如果是仿真，时间走得更快
 time_t get_time()
 {
+    if(EMULATION_SPEED == 1)
+    {
+	return time(0);
+    }
     static time_t begin = 0;
     static time_t base = 0;
     if(begin == 0)
